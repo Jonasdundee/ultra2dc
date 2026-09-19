@@ -1,0 +1,19 @@
+Please implement a complete, mathematically rigorous, self-contained Kotlin implementation of the Bühlmann ZHL-16C decompression algorithm with Gradient Factors (GF Low / GF High) tailored for a Wear OS dive computer (Samsung Galaxy Watch Ultra / Garmin Mk style).
+
+Requirements:
+1. ZHL-16C parameters:
+   - All 16 tissue compartments with exact half-times (4.0 to 635.0 min for N2), 'a' coefficients, and 'b' coefficients.
+   - Support for Nitrox (configurable O2 fraction from 0.21 to 0.40, with balance N2).
+   - Ambient water pressure calculation (configurable freshwater 1000 kg/m³ or saltwater 1025 kg/m³, surface pressure default 1013.25 mbar / 1.01325 bar, water vapor pressure 0.0627 bar).
+2. Decompression calculation:
+   - Haldane/Schreiner equation for compartment inert gas loading during constant depth and depth changes.
+   - Gradient Factors: GF Low (e.g. 0.40) at first stop, GF High (e.g. 0.85) at surface, linear interpolation as a function of depth.
+   - NDL (No Decompression Limit) in minutes at current depth (calculating time until any compartment reaches its tolerated ambient pressure for surface under GF High).
+   - Decompression ceiling and required stops: 3m/10ft interval stop schedule with depth and stop times if NDL reaches 0.
+   - Ascent rate monitoring (m/min) and ascent rate safety thresholds (<9 m/min optimal, 9-12 m/min warning, >12 m/min critical).
+   - Safety Stop detector: 3 minutes countdown at 3m-5m depth after dive > 10m.
+   - Nitrox PO2 ($P_{amb} \times FO_2$) and Maximum Operating Depth (MOD for PO2 = 1.4 bar and PO2 = 1.6 bar contingency).
+   - CNS Oxygen Toxicity % tracking (NOAA single exposure limits curve).
+3. Clean, idiomatic Kotlin code with data classes, well documented, thread-safe or immutable state model.
+
+Return only high-quality production Kotlin code.
