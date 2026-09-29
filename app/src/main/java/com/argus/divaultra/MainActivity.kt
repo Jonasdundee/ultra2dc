@@ -1,10 +1,15 @@
 package com.argus.divaultra
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
 import android.os.Bundle
 import android.os.VibrationEffect
 import android.os.Vibrator
@@ -12,36 +17,51 @@ import android.os.VibratorManager
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.argus.divaultra.core.AscentRateStatus
 import com.argus.divaultra.core.DivePhase
 import com.argus.divaultra.core.DiveStateManager
 import com.argus.divaultra.core.SafetyStopStatus
+import com.argus.divaultra.log.DiveLogManager
+import com.argus.divaultra.log.GpsPoint
 import com.argus.divaultra.ui.GarminDiveScreen
 import com.argus.divaultra.ui.SettingsScreen
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.max
 
-class MainActivity : ComponentActivity(), SensorEventListener {
+class MainActivity : ComponentActivity(), SensorEventListener, LocationListener {
 
     private lateinit var sensorManager: SensorManager
     private var pressureSensor: Sensor? = null
     private var tempSensor: Sensor? = null
     private var rotationSensor: Sensor? = null
     private val stateManager = DiveStateManager()
+    private lateinit var diveLogManager: DiveLogManager
+    private var locationManager: LocationManager? = null
 
     private var surfacePressureHpa = 1013.25f
     private var isSurfacePressureCalibrated = false
     private var currentTempCelsius = 24.0
     private var isSimulating = false
+    private var hasDiveLogStarted = false
 
     private val rotationMatrix = FloatArray(9)
     private val orientationAngles = FloatArray(3)
+
+    private val requestPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        if (permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true) {
+            fetchSurfaceGps()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -49,18 +69,44 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         // Keep screen on continuously while diving
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
+        // Initialize Dive Log Manager
+        diveLogManager = DiveLogManager(this)
+
         // Initialize Sensors
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
         pressureSensor = sensorManager.getDefaultSensor(Sensor.TYPE_PRESSURE)
         tempSensor = sensorManager.getDefaultSensor(Sensor.TYPE_AMBIENT_TEMPERATURE)
         rotationSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
 
-        // Listen for haptic alarm triggers
+        // Initialize Location
+        locationManager = getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+        checkAndRequestLocationPermissions()
+
+        // Listen for haptic alarms and record dive profile samples
         lifecycleScope.launch {
             var prevSafetyStatus = SafetyStopStatus.NOT_REQUIRED
             var prevAscentStatus = AscentRateStatus.OPTIMAL
+            var prevPhase = DivePhase.SURFACE
 
             stateManager.telemetry.collect { telemetry ->
+                // Dive start transition: Submersion detected
+                if (telemetry.phase != DivePhase.SURFACE && telemetry.phase != DivePhase.COMPLETED && !hasDiveLogStarted) {
+                    hasDiveLogStarted = true
+                    diveLogManager.startDiveLog(telemetry.fractionO2)
+                    stopGpsUpdates() // Turn off GPS underwater to save battery
+                }
+
+                // Sample dive profile every 5 seconds
+                if (hasDiveLogStarted) {
+                    diveLogManager.recordSampleIfDue(telemetry)
+                }
+
+                // Dive complete transition: Surfaced after diving
+                if (telemetry.phase == DivePhase.COMPLETED && prevPhase != DivePhase.COMPLETED) {
+                    fetchExitGpsAndSave(telemetry)
+                    hasDiveLogStarted = false
+                }
+
                 // Vibrate on safety stop completed
                 if (telemetry.safetyStopStatus == SafetyStopStatus.COMPLETED && prevSafetyStatus != SafetyStopStatus.COMPLETED) {
                     triggerHapticPattern(longArrayOf(0, 300, 150, 300))
@@ -69,8 +115,10 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 if (telemetry.ascentRateStatus == AscentRateStatus.DANGER && prevAscentStatus != AscentRateStatus.DANGER) {
                     triggerHapticPattern(longArrayOf(0, 100, 100, 100, 100, 100))
                 }
+
                 prevSafetyStatus = telemetry.safetyStopStatus
                 prevAscentStatus = telemetry.ascentRateStatus
+                prevPhase = telemetry.phase
             }
         }
 
@@ -114,6 +162,67 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         }
     }
 
+    private fun checkAndRequestLocationPermissions() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+            fetchSurfaceGps()
+        } else {
+            requestPermissionLauncher.launch(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                )
+            )
+        }
+    }
+
+    private fun fetchSurfaceGps() {
+        try {
+            val lm = locationManager ?: return
+            // Check last known locations first
+            val lastGps = lm.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+            val lastNet = lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+            val best = when {
+                lastGps != null && lastNet != null -> if (lastGps.time > lastNet.time) lastGps else lastNet
+                lastGps != null -> lastGps
+                else -> lastNet
+            }
+            best?.let {
+                diveLogManager.setEntryGps(GpsPoint(it.latitude, it.longitude, it.accuracy, it.time))
+            }
+
+            // Register for fresh fix
+            if (lm.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 2000L, 5f, this)
+            }
+        } catch (ignored: SecurityException) {}
+    }
+
+    private fun stopGpsUpdates() {
+        try {
+            locationManager?.removeUpdates(this)
+        } catch (ignored: SecurityException) {}
+    }
+
+    private fun fetchExitGpsAndSave(telemetry: com.argus.divaultra.core.DiveTelemetry) {
+        try {
+            val lm = locationManager
+            if (lm != null && ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                val last = lm.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+                last?.let {
+                    diveLogManager.setExitGps(GpsPoint(it.latitude, it.longitude, it.accuracy, it.time))
+                }
+            }
+        } catch (ignored: SecurityException) {}
+
+        // Save complete dive log JSON to disk
+        diveLogManager.endDiveLog(telemetry)
+    }
+
+    override fun onLocationChanged(location: Location) {
+        // If still on surface, update entry GPS
+        diveLogManager.setEntryGps(GpsPoint(location.latitude, location.longitude, location.accuracy, location.time))
+    }
+
     override fun onResume() {
         super.onResume()
         pressureSensor?.let {
@@ -130,6 +239,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     override fun onPause() {
         super.onPause()
         sensorManager.unregisterListener(this)
+        stopGpsUpdates()
     }
 
     override fun onSensorChanged(event: SensorEvent?) {
@@ -145,7 +255,6 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 // 1 meter seawater ≈ 100.55 hPa delta
                 val deltaHpa = max(0.0f, currentHpa - surfacePressureHpa)
                 val depthMeters = deltaHpa / 100.55
-                // Automatic dive entry: onNewDepthSample automatically enters DIVING at >= 1.2m
                 stateManager.onNewDepthSample(depthMeters.toDouble(), currentTempCelsius, 1.0)
             }
             Sensor.TYPE_AMBIENT_TEMPERATURE -> {
@@ -168,7 +277,6 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         isSimulating = true
         triggerHapticPattern(longArrayOf(0, 150))
         lifecycleScope.launch {
-            // Full dive cycle: descent to 18m, bottom time, ascent, safety stop, surface
             val simulationSteps = listOf(
                 2.0, 5.0, 10.0, 15.0, 18.0, 18.0, 18.0, 18.0, 18.0, 18.0,
                 14.0, 10.0, 5.0, 5.0, 5.0, 5.0, 5.0, 2.0, 0.0
