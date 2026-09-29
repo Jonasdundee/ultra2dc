@@ -1,15 +1,12 @@
 package com.argus.divaultra.ui
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -41,6 +38,7 @@ val ColorTextMuted = Color(0xFF90A4AE)
 @Composable
 fun GarminDiveScreen(
     telemetry: DiveTelemetry,
+    onOpenSettings: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Box(
@@ -49,30 +47,33 @@ fun GarminDiveScreen(
             .background(ColorBackground),
         contentAlignment = Alignment.Center
     ) {
-        // 1. Outer Radial Ascent Rate Gauge (Left Arch)
+        // 1. Concentric Radial Ascent Rate Gauge (Left Arch - moved inward from bezel)
         AscentRateArcGauge(
             ascentRate = telemetry.ascentRateMetersPerMin,
             status = telemetry.ascentRateStatus,
             modifier = Modifier.fillMaxSize()
         )
 
-        // 2. Tactical Compass Heading Arc Gauge (Top Half Horizon)
+        // 2. Tactical Compass Heading Arc Gauge (Top Half Horizon - moved inward)
         CompassTopArcGauge(
             headingDegrees = telemetry.compassHeadingDegrees,
             cardinal = telemetry.cardinalDirection,
             modifier = Modifier.fillMaxSize()
         )
 
-        // 2. Central Tactical Screen Layout
+        // 3. Central Tactical Screen Layout (Safe round insets)
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(14.dp)
+                .padding(horizontal = 26.dp, top = 22.dp, bottom = 22.dp)
         ) {
-            // TOP SECTION: Dive Time & Gas / Requirement Badge
-            TopStatusBar(telemetry = telemetry)
+            // TOP SECTION: Dive Time & Gas Mix / Settings Button
+            TopStatusBar(
+                telemetry = telemetry,
+                onOpenSettings = onOpenSettings
+            )
 
             // MIDDLE SECTION: Dynamic Switch (Depth vs Safety Stop Dashboard)
             if (telemetry.phase == DivePhase.SAFETY_STOP || telemetry.safetyStopStatus == SafetyStopStatus.COMPLETED) {
@@ -83,23 +84,26 @@ fun GarminDiveScreen(
                 StandardDepthDisplay(telemetry = telemetry)
             }
 
-            // BOTTOM SECTION: NDL, Max Depth, and Water Temperature
+            // BOTTOM SECTION: NDL, Max Depth, and Water Temperature (Elevated)
             BottomDataBar(telemetry = telemetry)
         }
     }
 }
 
 /**
- * Top Status Bar with dive time, gas mix, and safety stop pending badge
+ * Top Status Bar with dive time, gas mix, and optional Settings shortcut on surface
  */
 @Composable
-fun TopStatusBar(telemetry: DiveTelemetry) {
+fun TopStatusBar(
+    telemetry: DiveTelemetry,
+    onOpenSettings: () -> Unit
+) {
     Row(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 2.dp)
+            .padding(horizontal = 6.dp)
     ) {
         // Dive Time (MM:SS)
         val minutes = telemetry.diveTimeSeconds / 60
@@ -109,44 +113,61 @@ fun TopStatusBar(telemetry: DiveTelemetry) {
             Text(
                 text = String.format(Locale.US, "%02d:%02d", minutes, seconds),
                 color = Color.White,
-                fontSize = 14.sp,
+                fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.Monospace
             )
         }
 
-        // Safety Stop Requirement / Gas Badge
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            if (telemetry.safetyStopStatus == SafetyStopStatus.REQUIRED_PENDING) {
-                Box(
-                    modifier = Modifier
-                        .background(ColorGarminAmber.copy(alpha = 0.25f), RoundedCornerShape(4.dp))
-                        .padding(horizontal = 4.dp, vertical = 2.dp)
-                ) {
-                    Text("STOP REQ", color = ColorGarminAmber, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                }
-                Spacer(modifier = Modifier.width(4.dp))
-            }
-
-            // Gas Mix Badge (e.g., EAN32)
+        // Surface Mode: Clickable Setup Badge; Dive Mode: Gas Mix Badge
+        if (telemetry.phase == DivePhase.SURFACE) {
             Box(
                 modifier = Modifier
-                    .background(ColorSurfaceGray, RoundedCornerShape(4.dp))
-                    .padding(horizontal = 5.dp, vertical = 2.dp)
+                    .background(ColorSurfaceGray, RoundedCornerShape(6.dp))
+                    .clickable { onOpenSettings() }
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
             ) {
-                Text(
-                    text = "EAN${(telemetry.fractionO2 * 100).toInt()}",
-                    color = ColorGarminCyan,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "⚙ EAN${(telemetry.fractionO2 * 100).toInt()}",
+                        color = ColorGarminCyan,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (telemetry.safetyStopStatus == SafetyStopStatus.REQUIRED_PENDING) {
+                    Box(
+                        modifier = Modifier
+                            .background(ColorGarminAmber.copy(alpha = 0.25f), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 4.dp, vertical = 2.dp)
+                    ) {
+                        Text("STOP", color = ColorGarminAmber, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                }
+
+                Box(
+                    modifier = Modifier
+                        .background(ColorSurfaceGray, RoundedCornerShape(4.dp))
+                        .padding(horizontal = 5.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "EAN${(telemetry.fractionO2 * 100).toInt()}",
+                        color = ColorGarminCyan,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
         }
     }
 }
 
 /**
- * Standard Depth Display when diving at bottom or ascending
+ * Standard Depth Display: Large numerals with elevated "M" unit
  */
 @Composable
 fun StandardDepthDisplay(telemetry: DiveTelemetry) {
@@ -154,31 +175,37 @@ fun StandardDepthDisplay(telemetry: DiveTelemetry) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Text(
-            text = String.format(Locale.US, "%.1f", telemetry.currentDepthMeters),
-            color = Color.White,
-            fontSize = 46.sp,
-            fontWeight = FontWeight.ExtraBold,
-            fontFamily = FontFamily.Monospace
-        )
-        Text(
-            text = "METERS",
-            color = ColorGarminCyan,
-            fontSize = 10.sp,
-            fontWeight = FontWeight.SemiBold,
-            letterSpacing = 1.5.sp
-        )
+        Row(
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = String.format(Locale.US, "%.1f", telemetry.currentDepthMeters),
+                color = Color.White,
+                fontSize = 42.sp,
+                fontWeight = FontWeight.ExtraBold,
+                fontFamily = FontFamily.Monospace
+            )
+            Spacer(modifier = Modifier.width(3.dp))
+            Text(
+                text = "M",
+                color = ColorGarminCyan,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Black,
+                modifier = Modifier.padding(bottom = 6.dp)
+            )
+        }
 
         // Deco Warning Banner if ceiling exists
         if (telemetry.ceilingMeters > 0.5) {
             Box(
                 modifier = Modifier
-                    .padding(top = 4.dp)
-                    .background(ColorGarminRed.copy(alpha = 0.3f), RoundedCornerShape(6.dp))
+                    .padding(top = 2.dp)
+                    .background(ColorGarminRed.copy(alpha = 0.35f), RoundedCornerShape(6.dp))
                     .padding(horizontal = 8.dp, vertical = 2.dp)
             ) {
                 Text(
-                    text = "DECO STOP: ${String.format(Locale.US, "%.1fm", telemetry.ceilingMeters)}",
+                    text = "DECO STOP: ${String.format(Locale.US, "%.1f M", telemetry.ceilingMeters)}",
                     color = ColorGarminRed,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold
@@ -202,7 +229,7 @@ fun SafetyStopDashboard(telemetry: DiveTelemetry) {
         verticalArrangement = Arrangement.Center,
         modifier = Modifier
             .fillMaxWidth()
-            .background(ColorCardBackground, RoundedCornerShape(12.dp))
+            .background(ColorCardBackground, RoundedCornerShape(10.dp))
             .border(
                 1.dp,
                 when (telemetry.safetyStopStatus) {
@@ -211,16 +238,15 @@ fun SafetyStopDashboard(telemetry: DiveTelemetry) {
                     SafetyStopStatus.PAUSED_TOO_DEEP -> ColorGarminAmber
                     else -> ColorGarminAmber
                 },
-                RoundedCornerShape(12.dp)
+                RoundedCornerShape(10.dp)
             )
-            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .padding(horizontal = 8.dp, vertical = 4.dp)
     ) {
-        // Status Title
         val statusText = when (telemetry.safetyStopStatus) {
-            SafetyStopStatus.COMPLETED -> "✅ STOP COMPLETE"
-            SafetyStopStatus.PAUSED_TOO_SHALLOW -> "⚠️ TOO SHALLOW - DESCEND!"
-            SafetyStopStatus.PAUSED_TOO_DEEP -> "⏸️ PAUSED - ASCEND TO 5M"
-            else -> "🛑 SAFETY STOP (5.0m)"
+            SafetyStopStatus.COMPLETED -> "✅ STOP CLEAR"
+            SafetyStopStatus.PAUSED_TOO_SHALLOW -> "⚠️ TOO SHALLOW!"
+            SafetyStopStatus.PAUSED_TOO_DEEP -> "⏸️ PAUSED - AT 5M"
+            else -> "🛑 SAFETY STOP (5M)"
         }
         val statusColor = when (telemetry.safetyStopStatus) {
             SafetyStopStatus.COMPLETED -> ColorGarminGreen
@@ -232,7 +258,7 @@ fun SafetyStopDashboard(telemetry: DiveTelemetry) {
         Text(
             text = statusText,
             color = statusColor,
-            fontSize = 11.sp,
+            fontSize = 10.sp,
             fontWeight = FontWeight.Bold
         )
 
@@ -240,7 +266,7 @@ fun SafetyStopDashboard(telemetry: DiveTelemetry) {
         Text(
             text = String.format(Locale.US, "%02d:%02d", min, sec),
             color = if (telemetry.safetyStopStatus == SafetyStopStatus.COMPLETED) ColorGarminGreen else Color.White,
-            fontSize = 32.sp,
+            fontSize = 28.sp,
             fontWeight = FontWeight.ExtraBold,
             fontFamily = FontFamily.Monospace
         )
@@ -251,61 +277,61 @@ fun SafetyStopDashboard(telemetry: DiveTelemetry) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "DEPTH: ${String.format(Locale.US, "%.1fm", telemetry.currentDepthMeters)}",
+                text = "${String.format(Locale.US, "%.1f", telemetry.currentDepthMeters)} M",
                 color = Color.White,
-                fontSize = 13.sp,
+                fontSize = 12.sp,
                 fontWeight = FontWeight.Bold
             )
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(6.dp))
             Text(
-                text = "(TARGET 5.0m)",
-                color = ColorTextMuted,
-                fontSize = 10.sp
+                text = "TARGET: 5.0 M",
+                color = ColorGarminCyan,
+                fontSize = 10.sp,
+                fontFamily = FontFamily.Monospace
             )
         }
 
-        // Buoyancy Corridor Gauge (3m - 6m zone indicator)
+        // Horizontal Buoyancy Corridor Gauge
         BuoyancyCorridorBar(
             currentDepth = telemetry.currentDepthMeters,
+            targetDepth = telemetry.safetyStopTargetDepthMeters,
             minDepth = telemetry.safetyStopMinDepthMeters,
             maxDepth = telemetry.safetyStopMaxDepthMeters,
-            targetDepth = telemetry.safetyStopTargetDepthMeters,
             modifier = Modifier
-                .fillMaxWidth()
-                .height(14.dp)
-                .padding(top = 4.dp)
+                .fillMaxWidth(0.92f)
+                .height(10.dp)
+                .padding(top = 2.dp)
         )
     }
 }
 
 /**
- * Visual Buoyancy corridor bar showing the 3m - 6m safety zone with current depth marker
+ * Visual Buoyancy Corridor Horizontal Gauge (3m to 6m Safe Zone)
  */
 @Composable
 fun BuoyancyCorridorBar(
     currentDepth: Double,
+    targetDepth: Double,
     minDepth: Double,
     maxDepth: Double,
-    targetDepth: Double,
     modifier: Modifier = Modifier
 ) {
     Canvas(modifier = modifier) {
         val w = size.width
         val h = size.height
 
-        // Background track (representing 2.0m to 7.0m)
+        // Outer bar track (2m to 7m display range)
         val displayMin = 2.0
         val displayMax = 7.0
         val range = displayMax - displayMin
 
-        // Draw track
         drawRoundRect(
             color = ColorSurfaceGray,
-            size = Size(w, h),
+            size = size,
             cornerRadius = androidx.compose.ui.geometry.CornerRadius(4f, 4f)
         )
 
-        // Green safe zone (3.0m to 6.0m)
+        // Green Safe Corridor Window (3.0m to 6.0m)
         val safeLeft = (((minDepth - displayMin) / range) * w).toFloat().coerceIn(0f, w)
         val safeRight = (((maxDepth - displayMin) / range) * w).toFloat().coerceIn(0f, w)
         drawRect(
@@ -323,7 +349,7 @@ fun BuoyancyCorridorBar(
             strokeWidth = 2.dp.toPx()
         )
 
-        // Current Depth Indicator (Indicator Dot)
+        // Current Depth Indicator (Dot)
         val markerX = (((currentDepth.coerceIn(displayMin, displayMax) - displayMin) / range) * w).toFloat()
         drawCircle(
             color = if (currentDepth in minDepth..maxDepth) ColorGarminGreen else ColorGarminRed,
@@ -334,7 +360,7 @@ fun BuoyancyCorridorBar(
 }
 
 /**
- * Bottom Data Bar with NDL, Max Depth, and Temp
+ * Bottom Data Bar with elevated units and safe margin from bottom edge
  */
 @Composable
 fun BottomDataBar(telemetry: DiveTelemetry) {
@@ -343,35 +369,34 @@ fun BottomDataBar(telemetry: DiveTelemetry) {
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 2.dp)
+            .padding(horizontal = 6.dp)
     ) {
         // Max Depth
         Column(horizontalAlignment = Alignment.Start) {
             Text("MAX", color = ColorTextMuted, fontSize = 8.sp, fontWeight = FontWeight.Bold)
             Text(
-                text = "${String.format(Locale.US, "%.1f", telemetry.maxDepthMeters)}m",
+                text = "${String.format(Locale.US, "%.1f", telemetry.maxDepthMeters)} M",
                 color = Color.White,
-                fontSize = 12.sp,
+                fontSize = 11.sp,
                 fontWeight = FontWeight.Bold
             )
         }
 
-        // NDL (No Decompression Limit) in Minutes
+        // NDL Box with prominent MIN unit
         Box(
             modifier = Modifier
                 .background(
                     when {
-                        telemetry.ndlMinutes <= 5 -> ColorGarminRed.copy(alpha = 0.3f)
-                        telemetry.ndlMinutes <= 10 -> ColorGarminAmber.copy(alpha = 0.3f)
+                        telemetry.ndlMinutes <= 5 -> ColorGarminRed.copy(alpha = 0.35f)
+                        telemetry.ndlMinutes <= 10 -> ColorGarminAmber.copy(alpha = 0.35f)
                         else -> ColorGarminGreen.copy(alpha = 0.25f)
                     },
                     RoundedCornerShape(6.dp)
                 )
-                .padding(horizontal = 7.dp, vertical = 3.dp),
+                .padding(horizontal = 7.dp, vertical = 2.dp),
             contentAlignment = Alignment.Center
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("NDL", color = ColorTextMuted, fontSize = 7.sp, fontWeight = FontWeight.Bold)
+            Row(verticalAlignment = Alignment.Bottom) {
                 Text(
                     text = "${telemetry.ndlMinutes}",
                     color = when {
@@ -379,9 +404,17 @@ fun BottomDataBar(telemetry: DiveTelemetry) {
                         telemetry.ndlMinutes <= 10 -> ColorGarminAmber
                         else -> ColorGarminGreen
                     },
-                    fontSize = 16.sp,
+                    fontSize = 15.sp,
                     fontWeight = FontWeight.ExtraBold,
                     fontFamily = FontFamily.Monospace
+                )
+                Spacer(modifier = Modifier.width(2.dp))
+                Text(
+                    text = "MIN",
+                    color = ColorTextMuted,
+                    fontSize = 8.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(bottom = 2.dp)
                 )
             }
         }
@@ -390,9 +423,9 @@ fun BottomDataBar(telemetry: DiveTelemetry) {
         Column(horizontalAlignment = Alignment.End) {
             Text("TEMP", color = ColorTextMuted, fontSize = 8.sp, fontWeight = FontWeight.Bold)
             Text(
-                text = "${telemetry.waterTemperatureCelsius.toInt()}°C",
+                text = "${telemetry.waterTemperatureCelsius.toInt()} °C",
                 color = Color.White,
-                fontSize = 12.sp,
+                fontSize = 11.sp,
                 fontWeight = FontWeight.Bold
             )
         }
@@ -400,7 +433,7 @@ fun BottomDataBar(telemetry: DiveTelemetry) {
 }
 
 /**
- * Tactical Left-arc Ascent Rate meter inspired by Garmin Descent Mk3
+ * Concentric Left-arc Ascent Rate meter (moved inward 16dp from edge)
  */
 @Composable
 fun AscentRateArcGauge(
@@ -409,25 +442,24 @@ fun AscentRateArcGauge(
     modifier: Modifier = Modifier
 ) {
     Canvas(modifier = modifier) {
-        val strokeWidth = 8.dp.toPx()
-        val diameter = size.minDimension - strokeWidth - 6.dp.toPx()
+        val strokeWidth = 7.dp.toPx()
+        val diameter = size.minDimension - strokeWidth - 32.dp.toPx()
         val topLeft = Offset((size.width - diameter) / 2, (size.height - diameter) / 2)
         val arcSize = Size(diameter, diameter)
 
-        // Background Track on left edge: 130 degrees to 230 degrees
+        // Background Track on left edge: 140° to 220° (80° sweep)
         drawArc(
             color = ColorSurfaceGray,
-            startAngle = 130f,
-            sweepAngle = 100f,
+            startAngle = 140f,
+            sweepAngle = 80f,
             useCenter = false,
             topLeft = topLeft,
             size = arcSize,
             style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
         )
 
-        // Active Ascent Fill: Map 0 - 12 m/min to 0 - 100 degrees sweep
         val normalizedRate = (ascentRate.coerceIn(0.0, 12.0) / 12.0).toFloat()
-        val sweepAngle = normalizedRate * 100f
+        val sweepAngle = normalizedRate * 80f
 
         val fillColor = when (status) {
             AscentRateStatus.OPTIMAL -> ColorGarminGreen
@@ -438,7 +470,7 @@ fun AscentRateArcGauge(
         if (sweepAngle > 2f) {
             drawArc(
                 color = fillColor,
-                startAngle = 130f,
+                startAngle = 140f,
                 sweepAngle = sweepAngle,
                 useCenter = false,
                 topLeft = topLeft,
@@ -451,7 +483,7 @@ fun AscentRateArcGauge(
 
 /**
  * Tactical Curved Compass Bar across the top half of the watch face.
- * Features degree tick marks, glowing bearing index, and numeric degree readout.
+ * Inset 16dp from top edge so degree badge and indicator never clip.
  */
 @Composable
 fun CompassTopArcGauge(
@@ -462,26 +494,25 @@ fun CompassTopArcGauge(
     Box(modifier = modifier, contentAlignment = Alignment.TopCenter) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             val strokeWidth = 5.dp.toPx()
-            val diameter = size.minDimension - strokeWidth - 6.dp.toPx()
+            val diameter = size.minDimension - strokeWidth - 32.dp.toPx()
             val topLeft = Offset((size.width - diameter) / 2, (size.height - diameter) / 2)
             val arcSize = Size(diameter, diameter)
 
-            // Top arc from 220° to 320° (100° sweep centered at 270° / 12 o'clock)
+            // Top arc from 230° to 310° (80° sweep centered at 270° / 12 o'clock)
             drawArc(
                 color = ColorSurfaceGray,
-                startAngle = 220f,
-                sweepAngle = 100f,
+                startAngle = 230f,
+                sweepAngle = 80f,
                 useCenter = false,
                 topLeft = topLeft,
                 size = arcSize,
                 style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
             )
 
-            // Dynamic Compass Needle / Cursor Tick along the top arc
-            // Map heading (0 - 360) to a normalized angle offset or window
+            // Dynamic Compass Cursor along the arc
             val normalizedHeading = (headingDegrees % 360f + 360f) % 360f
-            val headingSweepOffset = ((normalizedHeading / 360f) * 100f) - 50f
-            val cursorAngle = 270f + headingSweepOffset.coerceIn(-48f, 48f)
+            val headingSweepOffset = ((normalizedHeading / 360f) * 80f) - 40f
+            val cursorAngle = 270f + headingSweepOffset.coerceIn(-38f, 38f)
 
             val rad = Math.toRadians(cursorAngle.toDouble())
             val radius = diameter / 2f
@@ -490,25 +521,24 @@ fun CompassTopArcGauge(
             val cursorX = (centerX + radius * kotlin.math.cos(rad)).toFloat()
             val cursorY = (centerY + radius * kotlin.math.sin(rad)).toFloat()
 
-            // Draw glowing cyan heading marker
             drawCircle(
                 color = ColorGarminCyan,
-                radius = 4.dp.toPx(),
+                radius = 3.5.dp.toPx(),
                 center = Offset(cursorX, cursorY)
             )
         }
 
-        // Digital Heading Readout Badge at top center (e.g. "245° SW")
+        // Digital Heading Readout Badge (e.g. "245° SW") lowered from bezel
         Box(
             modifier = Modifier
-                .padding(top = 4.dp)
-                .background(ColorSurfaceGray.copy(alpha = 0.85f), RoundedCornerShape(4.dp))
+                .padding(top = 18.dp)
+                .background(ColorSurfaceGray.copy(alpha = 0.9f), RoundedCornerShape(4.dp))
                 .padding(horizontal = 6.dp, vertical = 1.dp)
         ) {
             Text(
                 text = "${headingDegrees.toInt()}° $cardinal",
                 color = ColorGarminCyan,
-                fontSize = 10.sp,
+                fontSize = 9.sp,
                 fontWeight = FontWeight.ExtraBold,
                 fontFamily = FontFamily.Monospace,
                 letterSpacing = 0.5.sp

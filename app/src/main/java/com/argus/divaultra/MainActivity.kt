@@ -12,17 +12,17 @@ import android.os.VibratorManager
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.lifecycle.lifecycleScope
 import com.argus.divaultra.core.AscentRateStatus
+import com.argus.divaultra.core.DivePhase
 import com.argus.divaultra.core.DiveStateManager
 import com.argus.divaultra.core.SafetyStopStatus
 import com.argus.divaultra.ui.GarminDiveScreen
+import com.argus.divaultra.ui.SettingsScreen
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.max
@@ -36,6 +36,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private val stateManager = DiveStateManager()
 
     private var surfacePressureHpa = 1013.25f
+    private var isSurfacePressureCalibrated = false
     private var currentTempCelsius = 24.0
     private var isSimulating = false
 
@@ -64,7 +65,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 if (telemetry.safetyStopStatus == SafetyStopStatus.COMPLETED && prevSafetyStatus != SafetyStopStatus.COMPLETED) {
                     triggerHapticPattern(longArrayOf(0, 300, 150, 300))
                 }
-                // Vibrate on dangerous ascent
+                // Vibrate on dangerous ascent (> 10 m/min)
                 if (telemetry.ascentRateStatus == AscentRateStatus.DANGER && prevAscentStatus != AscentRateStatus.DANGER) {
                     triggerHapticPattern(longArrayOf(0, 100, 100, 100, 100, 100))
                 }
@@ -75,20 +76,40 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
         setContent {
             val telemetry by stateManager.telemetry.collectAsState()
+            var currentScreen by remember { mutableStateOf("dive") }
 
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .pointerInput(Unit) {
-                        // Double tap to toggle demo simulation on dry land
-                        detectTapGestures(
-                            onDoubleTap = {
-                                toggleSimulation()
+            // Whenever active diving is detected, automatically lock onto Dive Screen
+            LaunchedEffect(telemetry.phase) {
+                if (telemetry.phase != DivePhase.SURFACE && telemetry.phase != DivePhase.COMPLETED) {
+                    currentScreen = "dive"
+                }
+            }
+
+            Box(modifier = Modifier.fillMaxSize()) {
+                if (currentScreen == "settings" && telemetry.phase == DivePhase.SURFACE) {
+                    SettingsScreen(
+                        telemetry = telemetry,
+                        onGasSelected = { newMix ->
+                            stateManager.setGasMix(newMix)
+                        },
+                        onStartSimulation = {
+                            currentScreen = "dive"
+                            startSimulation()
+                        },
+                        onReturnToDive = {
+                            currentScreen = "dive"
+                        }
+                    )
+                } else {
+                    GarminDiveScreen(
+                        telemetry = telemetry,
+                        onOpenSettings = {
+                            if (telemetry.phase == DivePhase.SURFACE) {
+                                currentScreen = "settings"
                             }
-                        )
-                    }
-            ) {
-                GarminDiveScreen(telemetry = telemetry)
+                        }
+                    )
+                }
             }
         }
     }
@@ -117,9 +138,14 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         when (event.sensor.type) {
             Sensor.TYPE_PRESSURE -> {
                 val currentHpa = event.values[0]
-                // 1 bar = 1000 hPa. 1 meter seawater ≈ 100.55 hPa
+                if (!isSurfacePressureCalibrated) {
+                    surfacePressureHpa = currentHpa
+                    isSurfacePressureCalibrated = true
+                }
+                // 1 meter seawater ≈ 100.55 hPa delta
                 val deltaHpa = max(0.0f, currentHpa - surfacePressureHpa)
-                val depthMeters = deltaHpa / 100.55 // Saltwater gradient
+                val depthMeters = deltaHpa / 100.55
+                // Automatic dive entry: onNewDepthSample automatically enters DIVING at >= 1.2m
                 stateManager.onNewDepthSample(depthMeters.toDouble(), currentTempCelsius, 1.0)
             }
             Sensor.TYPE_AMBIENT_TEMPERATURE -> {
@@ -137,22 +163,22 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 
-    private fun toggleSimulation() {
-        isSimulating = !isSimulating
-        if (isSimulating) {
-            triggerHapticPattern(longArrayOf(0, 150))
-            lifecycleScope.launch {
-                // Quick simulated dive: descent to 18m, hold, ascent, safety stop, surface
-                val depths = listOf(
-                    2.0, 5.0, 12.0, 18.0, 18.0, 18.0, 18.0, 14.0, 8.0, 5.0, 5.0, 5.0, 5.0, 5.0, 2.0, 0.0
-                )
-                for (d in depths) {
-                    if (!isSimulating) break
-                    stateManager.onNewDepthSample(d, 23.0, 2.0)
-                    delay(2000)
-                }
-                isSimulating = false
+    private fun startSimulation() {
+        if (isSimulating) return
+        isSimulating = true
+        triggerHapticPattern(longArrayOf(0, 150))
+        lifecycleScope.launch {
+            // Full dive cycle: descent to 18m, bottom time, ascent, safety stop, surface
+            val simulationSteps = listOf(
+                2.0, 5.0, 10.0, 15.0, 18.0, 18.0, 18.0, 18.0, 18.0, 18.0,
+                14.0, 10.0, 5.0, 5.0, 5.0, 5.0, 5.0, 2.0, 0.0
+            )
+            for (depth in simulationSteps) {
+                if (!isSimulating) break
+                stateManager.onNewDepthSample(depth, 23.0, 2.0)
+                delay(2000)
             }
+            isSimulating = false
         }
     }
 
