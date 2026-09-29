@@ -427,6 +427,10 @@ fun BottomDataBar(telemetry: DiveTelemetry) {
 /**
  * Concentric Left-arc Ascent Rate meter
  */
+/**
+ * Tactical 6-Step Gradient Ascent Rate Meter (3 Green, 2 Yellow, 1 Red)
+ * Inspired by Garmin Descent Mk3 segmented ladder
+ */
 @Composable
 fun AscentRateArcGauge(
     ascentRate: Double,
@@ -434,39 +438,48 @@ fun AscentRateArcGauge(
     modifier: Modifier = Modifier
 ) {
     Canvas(modifier = modifier) {
-        val strokeWidth = 7.dp.toPx()
+        val strokeWidth = 8.dp.toPx()
         val diameter = size.minDimension - strokeWidth - 32.dp.toPx()
         val topLeft = Offset((size.width - diameter) / 2, (size.height - diameter) / 2)
         val arcSize = Size(diameter, diameter)
 
-        drawArc(
-            color = ColorSurfaceGray,
-            startAngle = 140f,
-            sweepAngle = 80f,
-            useCenter = false,
-            topLeft = topLeft,
-            size = arcSize,
-            style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+        // 6 discrete segmented gradient blocks
+        val segmentCount = 6
+        val segmentSweep = 11f
+        val gapSweep = 2.8f
+        val baseStartAngle = 140f
+
+        // Segment threshold speeds in m/min:
+        // Segment 0: > 1.0 m/min (Green 1)
+        // Segment 1: > 3.0 m/min (Green 2)
+        // Segment 2: > 5.5 m/min (Green 3)
+        // Segment 3: > 7.5 m/min (Yellow 1)
+        // Segment 4: > 9.0 m/min (Yellow 2)
+        // Segment 5: > 10.0 m/min (Red 1 - Critical)
+        val thresholds = listOf(1.0, 3.0, 5.5, 7.5, 9.0, 10.0)
+        val segmentColors = listOf(
+            ColorGarminGreen,  // Green 1
+            ColorGarminGreen,  // Green 2
+            ColorGarminGreen,  // Green 3
+            ColorGarminAmber,  // Yellow 1
+            ColorGarminAmber,  // Yellow 2
+            ColorGarminRed     // Red 1
         )
 
-        val normalizedRate = (ascentRate.coerceIn(0.0, 12.0) / 12.0).toFloat()
-        val sweepAngle = normalizedRate * 80f
+        for (i in 0 until segmentCount) {
+            val startAngle = baseStartAngle + i * (segmentSweep + gapSweep)
+            val isLit = ascentRate >= thresholds[i]
+            val color = if (isLit) segmentColors[i] else ColorSurfaceGray.copy(alpha = 0.45f)
+            val actualStroke = if (isLit) strokeWidth + 1.dp.toPx() else strokeWidth
 
-        val fillColor = when (status) {
-            AscentRateStatus.OPTIMAL -> ColorGarminGreen
-            AscentRateStatus.CAUTION -> ColorGarminAmber
-            AscentRateStatus.DANGER -> ColorGarminRed
-        }
-
-        if (sweepAngle > 2f) {
             drawArc(
-                color = fillColor,
-                startAngle = 140f,
-                sweepAngle = sweepAngle,
+                color = color,
+                startAngle = startAngle,
+                sweepAngle = segmentSweep,
                 useCenter = false,
                 topLeft = topLeft,
                 size = arcSize,
-                style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                style = Stroke(width = actualStroke, cap = StrokeCap.Round)
             )
         }
     }
