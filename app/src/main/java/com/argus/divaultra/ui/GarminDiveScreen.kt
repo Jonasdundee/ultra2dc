@@ -67,7 +67,7 @@ fun GarminDiveScreen(
             verticalArrangement = Arrangement.SpaceBetween,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 26.dp, top = 22.dp, bottom = 22.dp)
+                .padding(horizontal = 26.dp, vertical = 22.dp)
         ) {
             // TOP SECTION: Dive Time & Gas Mix / Settings Button
             TopStatusBar(
