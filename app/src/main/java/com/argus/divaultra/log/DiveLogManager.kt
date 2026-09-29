@@ -83,7 +83,7 @@ class DiveLogManager(private val context: Context) {
                 temperatureCelsius = telemetry.waterTemperatureCelsius,
                 ascentRateMetersPerMin = telemetry.ascentRateMetersPerMin,
                 ndlMinutes = telemetry.ndlMinutes,
-                cnsPercent = telemetry.cnsPercentage,
+                cnsPercent = telemetry.cnsPercent,
                 inSafetyStopRange = telemetry.currentDepthMeters in 3.0..6.0
             )
             samples.add(sample)
