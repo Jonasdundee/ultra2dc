@@ -33,6 +33,7 @@ import com.argus.divaultra.log.GpsPoint
 import com.argus.divaultra.ui.GarminDiveScreen
 import com.argus.divaultra.ui.SettingsScreen
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.math.max
 
@@ -82,7 +83,16 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
         locationManager = getSystemService(Context.LOCATION_SERVICE) as? LocationManager
         checkAndRequestLocationPermissions()
 
-        // Listen for haptic alarms and record dive profile samples
+        // 1. DEDICATED 1-SECOND CLOCK TICKER:
+        // Guarantees that dive timer, Bühlmann loading, and NDL advance at 1 second per real second!
+        lifecycleScope.launch {
+            while (isActive) {
+                delay(1000)
+                stateManager.onOneSecondTick()
+            }
+        }
+
+        // 2. Telemetry Observer: Haptic alerts and dive profile sampling
         lifecycleScope.launch {
             var prevSafetyStatus = SafetyStopStatus.NOT_REQUIRED
             var prevAscentStatus = AscentRateStatus.OPTIMAL
@@ -178,7 +188,6 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
     private fun fetchSurfaceGps() {
         try {
             val lm = locationManager ?: return
-            // Check last known locations first
             val lastGps = lm.getLastKnownLocation(LocationManager.GPS_PROVIDER)
             val lastNet = lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
             val best = when {
@@ -190,7 +199,6 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
                 diveLogManager.setEntryGps(GpsPoint(it.latitude, it.longitude, it.accuracy, it.time))
             }
 
-            // Register for fresh fix
             if (lm.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
                 lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 2000L, 5f, this)
             }
@@ -214,12 +222,10 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
             }
         } catch (ignored: SecurityException) {}
 
-        // Save complete dive log JSON to disk
         diveLogManager.endDiveLog(telemetry)
     }
 
     override fun onLocationChanged(location: Location) {
-        // If still on surface, update entry GPS
         diveLogManager.setEntryGps(GpsPoint(location.latitude, location.longitude, location.accuracy, location.time))
     }
 
@@ -255,7 +261,8 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
                 // 1 meter seawater ≈ 100.55 hPa delta
                 val deltaHpa = max(0.0f, currentHpa - surfacePressureHpa)
                 val depthMeters = deltaHpa / 100.55
-                stateManager.onNewDepthSample(depthMeters.toDouble(), currentTempCelsius, 1.0)
+                // Feeds real-time depth without advancing dive time prematurely
+                stateManager.onDepthReading(depthMeters.toDouble(), currentTempCelsius)
             }
             Sensor.TYPE_AMBIENT_TEMPERATURE -> {
                 currentTempCelsius = event.values[0].toDouble()
@@ -283,8 +290,9 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
             )
             for (depth in simulationSteps) {
                 if (!isSimulating) break
-                stateManager.onNewDepthSample(depth, 23.0, 2.0)
-                delay(2000)
+                stateManager.onDepthReading(depth, 23.0)
+                stateManager.onOneSecondTick()
+                delay(1000)
             }
             isSimulating = false
         }

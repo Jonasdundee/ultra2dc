@@ -208,19 +208,20 @@ fun StandardDepthDisplay(telemetry: DiveTelemetry) {
             )
         }
 
-        // Deco Warning Banner if ceiling exists
-        if (telemetry.ceilingMeters > 0.5) {
+        // Deco Warning Banner: Displayed ONLY during true mandatory staged decompression (NDL exhausted)
+        if (telemetry.phase == DivePhase.DECO_STOP && telemetry.ceilingMeters >= 3.0) {
             Box(
                 modifier = Modifier
                     .padding(top = 1.dp)
-                    .background(ColorGarminRed.copy(alpha = 0.35f), RoundedCornerShape(6.dp))
+                    .background(ColorGarminRed.copy(alpha = 0.45f), RoundedCornerShape(6.dp))
+                    .border(1.dp, ColorGarminRed, RoundedCornerShape(6.dp))
                     .padding(horizontal = 8.dp, vertical = 2.dp)
             ) {
                 Text(
-                    text = "DECO STOP: ${String.format(Locale.US, "%.1f M", telemetry.ceilingMeters)}",
+                    text = "DECO STOP: ${telemetry.ceilingMeters.toInt()} M",
                     color = ColorGarminRed,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Black
                 )
             }
         }
