@@ -12,18 +12,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
-import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.wear.compose.material.Text
-import android.graphics.Paint
-import android.graphics.Typeface
 import com.argus.divaultra.core.AscentRateStatus
 import com.argus.divaultra.core.DivePhase
 import com.argus.divaultra.core.DiveTelemetry
@@ -542,12 +537,8 @@ fun AscentRateArcGauge(
 }
 
 /**
- * Tactical Garmin Descent Mk-style Curved Compass Ribbon:
- * Features a dynamic scrolling compass arc along the top bezel with:
- * - 10-degree tick marks & subtle 5-degree tick marks
- * - Prominent Cardinal markers: N (tactical red), E, S, W (bright white), and intercardinals (cyan)
- * - Fixed center lubber pointer triangle ▼ at 12 o'clock
- * - Digital heading badge pinned ~5mm down in the upper-middle (top = 40.dp)
+ * Tactical Compass Heading Indicator:
+ * Pinned ~5mm down in the upper-middle (top = 40.dp) with bold degree readout and cardinal direction
  */
 @Composable
 fun CompassTopArcGauge(
@@ -556,125 +547,39 @@ fun CompassTopArcGauge(
     modifier: Modifier = Modifier
 ) {
     Box(modifier = modifier, contentAlignment = Alignment.TopCenter) {
-        // Tactical Curved Compass Ribbon along the top curve
+        // Subtle top guide arc & moving cyan tracking dot
         Canvas(modifier = Modifier.fillMaxSize()) {
-            val strokeWidth = 2.dp.toPx()
-            val outerRadius = size.minDimension / 2f - 14.dp.toPx()
-            val centerX = size.width / 2f
-            val centerY = size.height / 2f
-
-            // Top ribbon background track: arc from 225° to 315° (90° sweep centered at 270° / 12 o'clock)
-            val diameter = outerRadius * 2f
-            val topLeft = Offset(centerX - outerRadius, centerY - outerRadius)
+            val strokeWidth = 3.5.dp.toPx()
+            val diameter = size.minDimension - strokeWidth - 24.dp.toPx()
+            val topLeft = Offset((size.width - diameter) / 2, (size.height - diameter) / 2)
             val arcSize = Size(diameter, diameter)
 
             drawArc(
-                color = ColorSurfaceGray.copy(alpha = 0.5f),
-                startAngle = 225f,
-                sweepAngle = 90f,
+                color = ColorSurfaceGray.copy(alpha = 0.4f),
+                startAngle = 240f,
+                sweepAngle = 60f,
                 useCenter = false,
                 topLeft = topLeft,
                 size = arcSize,
                 style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
             )
 
-            // Draw ticks every 5° & 10° plus Cardinal Letters (N, NE, E, SE, S, SW, W, NW)
-            drawIntoCanvas { canvas ->
-                val paintCardinal = Paint().apply {
-                    isAntiAlias = true
-                    textAlign = Paint.Align.CENTER
-                    typeface = Typeface.DEFAULT_BOLD
-                    textSize = 10.dp.toPx()
-                }
+            val normalizedHeading = (headingDegrees % 360f + 360f) % 360f
+            val headingSweepOffset = ((normalizedHeading / 360f) * 60f) - 30f
+            val cursorAngle = 270f + headingSweepOffset.coerceIn(-28f, 28f)
 
-                for (deg in 0 until 360 step 5) {
-                    // Shortest delta from current heading in range [-180, 180]
-                    val delta = ((deg - headingDegrees + 540f) % 360f) - 180f
-                    // Visible window across top arc is ±40°
-                    if (delta in -40f..40f) {
-                        val angleDeg = 270f + delta
-                        val rad = Math.toRadians(angleDeg.toDouble())
-                        val cosA = kotlin.math.cos(rad).toFloat()
-                        val sinA = kotlin.math.sin(rad).toFloat()
+            val rad = Math.toRadians(cursorAngle.toDouble())
+            val radius = diameter / 2f
+            val centerX = size.width / 2f
+            val centerY = size.height / 2f
+            val cursorX = (centerX + radius * kotlin.math.cos(rad)).toFloat()
+            val cursorY = (centerY + radius * kotlin.math.sin(rad)).toFloat()
 
-                        val isCardinal = deg % 90 == 0
-                        val isIntercardinal = deg % 45 == 0 && !isCardinal
-                        val is10Deg = deg % 10 == 0
-
-                        val tickLength = when {
-                            isCardinal -> 8.dp.toPx()
-                            isIntercardinal -> 6.dp.toPx()
-                            is10Deg -> 5.dp.toPx()
-                            else -> 3.dp.toPx() // 5-deg tick
-                        }
-
-                        val pOuterX = centerX + outerRadius * cosA
-                        val pOuterY = centerY + outerRadius * sinA
-                        val pInnerX = centerX + (outerRadius - tickLength) * cosA
-                        val pInnerY = centerY + (outerRadius - tickLength) * sinA
-
-                        val tickColor = when {
-                            isCardinal && deg == 0 -> Color(0xFFFF3B30) // N in tactical red
-                            isCardinal -> Color.White
-                            isIntercardinal -> ColorGarminCyan.copy(alpha = 0.85f)
-                            is10Deg -> Color.White.copy(alpha = 0.6f)
-                            else -> ColorSurfaceGray.copy(alpha = 0.8f)
-                        }
-
-                        drawLine(
-                            color = tickColor,
-                            start = Offset(pOuterX, pOuterY),
-                            end = Offset(pInnerX, pInnerY),
-                            strokeWidth = if (isCardinal || isIntercardinal) 2.dp.toPx() else 1.2.dp.toPx()
-                        )
-
-                        // Draw Cardinal text inside the arc
-                        if (isCardinal || isIntercardinal) {
-                            val textRadius = outerRadius - 15.dp.toPx()
-                            val textX = centerX + textRadius * cosA
-                            val textY = centerY + textRadius * sinA + 3.5.dp.toPx() // Optical baseline adjustment
-
-                            val label = when (deg) {
-                                0 -> "N"
-                                45 -> "NE"
-                                90 -> "E"
-                                135 -> "SE"
-                                180 -> "S"
-                                225 -> "SW"
-                                270 -> "W"
-                                315 -> "NW"
-                                else -> ""
-                            }
-
-                            if (deg == 0) {
-                                paintCardinal.color = android.graphics.Color.parseColor("#FF3B30")
-                                paintCardinal.textSize = 11.dp.toPx()
-                            } else if (isCardinal) {
-                                paintCardinal.color = android.graphics.Color.WHITE
-                                paintCardinal.textSize = 10.dp.toPx()
-                            } else {
-                                paintCardinal.color = android.graphics.Color.parseColor("#00E5FF")
-                                paintCardinal.textSize = 8.5.dp.toPx()
-                            }
-
-                            canvas.nativeCanvas.drawText(label, textX, textY, paintCardinal)
-                        }
-                    }
-                }
-            }
-
-            // Fixed Center Lubber Indicator: Downward cyan pointer triangle ▼ at 12 o'clock
-            val pointerTopY = centerY - outerRadius - 2.dp.toPx()
-            val pointerBottomY = centerY - outerRadius + 6.dp.toPx()
-            val pointerHalfWidth = 4.dp.toPx()
-
-            val pointerPath = Path().apply {
-                moveTo(centerX, pointerBottomY)
-                lineTo(centerX - pointerHalfWidth, pointerTopY)
-                lineTo(centerX + pointerHalfWidth, pointerTopY)
-                close()
-            }
-            drawPath(path = pointerPath, color = ColorGarminCyan)
+            drawCircle(
+                color = ColorGarminCyan,
+                radius = 4.dp.toPx(),
+                center = Offset(cursorX, cursorY)
+            )
         }
 
         // Digital Heading Readout Badge (~5mm down in the middle)

@@ -116,6 +116,7 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
                 if (telemetry.phase == DivePhase.COMPLETED && prevPhase != DivePhase.COMPLETED) {
                     fetchExitGpsAndSave(telemetry)
                     hasDiveLogStarted = false
+                    stateManager.resetToSurface()
                 }
 
                 // Vibrate on safety stop completed
@@ -145,7 +146,7 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
             }
 
             Box(modifier = Modifier.fillMaxSize()) {
-                if (currentScreen == "settings" && telemetry.phase == DivePhase.SURFACE) {
+                if (currentScreen == "settings" && (telemetry.phase == DivePhase.SURFACE || telemetry.phase == DivePhase.COMPLETED)) {
                     SettingsScreen(
                         telemetry = telemetry,
                         onGasSelected = { newMix ->
@@ -164,8 +165,8 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
                     )
                 } else if (currentScreen == "logs") {
                     DiveLogScreen(
-                        diveLogManager = diveLogManager,
-                        onBack = {
+                        logManager = diveLogManager,
+                        onClose = {
                             currentScreen = "settings"
                         }
                     )
@@ -176,6 +177,9 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
                             if (telemetry.phase == DivePhase.SURFACE || telemetry.phase == DivePhase.COMPLETED) {
                                 currentScreen = "settings"
                             }
+                        },
+                        onEndDiveNow = {
+                            stateManager.endDiveNow()
                         }
                     )
                 }
