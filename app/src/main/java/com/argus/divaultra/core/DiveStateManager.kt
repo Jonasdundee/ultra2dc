@@ -4,6 +4,7 @@ import com.argus.divaultra.deco.BuhlmannZHL16C
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
 
@@ -12,6 +13,7 @@ enum class DivePhase {
     DIVING,
     SAFETY_STOP,
     DECO_STOP,
+    SURFACING,
     COMPLETED
 }
 
@@ -56,7 +58,9 @@ data class DiveTelemetry(
     val cnsPercent: Double = 0.0,
     // Tactical Compass Heading
     val compassHeadingDegrees: Float = 245f,
-    val cardinalDirection: String = "SW"
+    val cardinalDirection: String = "SW",
+    // Surface Interval Hysteresis (5 minutes countdown upon surfacing)
+    val surfaceIntervalRemainingSeconds: Int = 300
 )
 
 class DiveStateManager(
@@ -66,6 +70,8 @@ class DiveStateManager(
     val telemetry: StateFlow<DiveTelemetry> = _telemetry.asStateFlow()
 
     private var previousDepth = 0.0
+    private var lastDepthTimestampMs = 0L
+    private var smoothedAscentRate = 0.0
     private var depthSum = 0.0
     private var depthSampleCount = 0L
     private var maxDepthSeen = 0.0
@@ -76,6 +82,7 @@ class DiveStateManager(
     private var safetyStopRemainingSec = 180
     private var safetyStopTotalSec = 180
     private var safetyStopCompleted = false
+    private var surfaceIntervalRemainingSec = 300
 
     fun setGasMix(fractionO2: Double) {
         val mod = decoEngine.calculateMOD(fractionO2, 1.4)
@@ -104,12 +111,14 @@ class DiveStateManager(
     }
 
     /**
-     * Process new depth reading from Galaxy Watch Ultra sensor (or simulator)
+     * Process high-frequency sensor depth readings (called as sensor fires ~10Hz).
+     * Smooths depth, calculates physical ascent speed, and manages submersion transition.
      */
-    fun onNewDepthSample(depthMeters: Double, temperatureCelsius: Double, deltaSeconds: Double = 1.0) {
+    fun onDepthReading(depthMeters: Double, temperatureCelsius: Double) {
         val current = _telemetry.value
+        val nowMs = System.currentTimeMillis()
 
-        // Auto dive start / end trigger (1.2m threshold)
+        // 1. Auto dive entry (>= 1.2m) and exit (< 0.5m after diving)
         if (!isSubmerged && depthMeters >= 1.2) {
             isSubmerged = true
             maxDepthSeen = depthMeters
@@ -119,11 +128,21 @@ class DiveStateManager(
             safetyStopCompleted = false
             safetyStopTotalSec = 180
             safetyStopRemainingSec = 180
+            surfaceIntervalRemainingSec = 300
             previousDepth = depthMeters
-        } else if (isSubmerged && depthMeters < 0.5) {
-            // Dive finished / surfaced
-            isSubmerged = false
-            _telemetry.value = current.copy(phase = DivePhase.COMPLETED)
+            lastDepthTimestampMs = nowMs
+            smoothedAscentRate = 0.0
+        } else if (isSubmerged && depthMeters >= 1.2 && current.phase == DivePhase.SURFACING) {
+            // Diver redescended during 5-minute surface interval: Resume dive!
+            surfaceIntervalRemainingSec = 300
+        } else if (isSubmerged && depthMeters < 0.5 && current.diveTimeSeconds > 10) {
+            // Diver surfaced: Enter 5-minute surface interval hysteresis countdown
+            _telemetry.value = current.copy(
+                phase = DivePhase.SURFACING,
+                currentDepthMeters = depthMeters,
+                waterTemperatureCelsius = temperatureCelsius,
+                surfaceIntervalRemainingSeconds = surfaceIntervalRemainingSec
+            )
             return
         }
 
@@ -132,43 +151,94 @@ class DiveStateManager(
                 phase = DivePhase.SURFACE,
                 currentDepthMeters = depthMeters,
                 waterTemperatureCelsius = temperatureCelsius,
-                currentPO2 = decoEngine.calculatePO2(depthMeters, current.fractionO2)
+                currentPO2 = decoEngine.calculatePO2(depthMeters, current.fractionO2),
+                ascentRateMetersPerMin = 0.0,
+                ascentRateStatus = AscentRateStatus.OPTIMAL
             )
             return
         }
 
-        // Active dive update
-        val newDiveTime = current.diveTimeSeconds + deltaSeconds.toLong()
+        // 2. High-precision ascent rate with low-pass filter (runs at actual wall-clock delta)
+        val dtSec = if (lastDepthTimestampMs > 0L) (nowMs - lastDepthTimestampMs) / 1000.0 else 0.0
+        if (dtSec >= 0.25) { // update ascent velocity every 250ms minimum
+            val rawRate = ((previousDepth - depthMeters) / dtSec) * 60.0
+            smoothedAscentRate = (smoothedAscentRate * 0.65) + (rawRate * 0.35)
+            previousDepth = depthMeters
+            lastDepthTimestampMs = nowMs
+        }
+
+        val ascentStatus = when {
+            smoothedAscentRate > 10.0 -> AscentRateStatus.DANGER
+            smoothedAscentRate >= 9.0 -> AscentRateStatus.CAUTION
+            else -> AscentRateStatus.OPTIMAL
+        }
+
         maxDepthSeen = max(maxDepthSeen, depthMeters)
         depthSum += depthMeters
         depthSampleCount++
         val avgDepth = depthSum / depthSampleCount
 
-        // Ascent Rate (m/min)
-        val instantAscentRate = if (deltaSeconds > 0) {
-            ((previousDepth - depthMeters) / deltaSeconds) * 60.0
-        } else 0.0
-        previousDepth = depthMeters
+        _telemetry.value = current.copy(
+            currentDepthMeters = depthMeters,
+            maxDepthMeters = maxDepthSeen,
+            averageDepthMeters = avgDepth,
+            waterTemperatureCelsius = temperatureCelsius,
+            ascentRateMetersPerMin = max(0.0, smoothedAscentRate),
+            ascentRateStatus = ascentStatus
+        )
+    }
 
-        val ascentStatus = when {
-            instantAscentRate > 10.0 -> AscentRateStatus.DANGER
-            instantAscentRate >= 9.0 -> AscentRateStatus.CAUTION
-            else -> AscentRateStatus.OPTIMAL
+    /**
+     * Dedicated 1-Second Clock Ticker: Called strictly once per real-world second.
+     * Advances dive timer, Bühlmann decompression calculations, and safety stop counter.
+     */
+    fun onOneSecondTick() {
+        if (!isSubmerged) return
+        val current = _telemetry.value
+
+        // Surface interval countdown handler (5 minutes auto-end window)
+        if (current.phase == DivePhase.SURFACING) {
+            surfaceIntervalRemainingSec--
+            if (surfaceIntervalRemainingSec <= 0) {
+                isSubmerged = false
+                _telemetry.value = current.copy(
+                    phase = DivePhase.COMPLETED,
+                    surfaceIntervalRemainingSeconds = 0
+                )
+            } else {
+                _telemetry.value = current.copy(
+                    surfaceIntervalRemainingSeconds = surfaceIntervalRemainingSec
+                )
+            }
+            return
         }
 
-        // Advance Bühlmann ZHL-16C decompression core
-        decoEngine.update(depthMeters, deltaSeconds, current.fractionO2)
+        val depthMeters = current.currentDepthMeters
+
+        // 1. Advance dive time by exactly 1 real second
+        val newDiveTime = current.diveTimeSeconds + 1L
+
+        // 2. Advance Bühlmann ZHL-16C by exactly 1.0 second
+        decoEngine.update(depthMeters, 1.0, current.fractionO2)
         val ndl = decoEngine.calculateNDL(depthMeters, current.fractionO2)
-        val ceiling = decoEngine.calculateCeilingMeters()
+        val rawCeiling = decoEngine.calculateCeilingMeters()
         val po2 = decoEngine.calculatePO2(depthMeters, current.fractionO2)
         val cns = decoEngine.cnsToxicityPercent
 
-        // 1. SAFETY STOP REQUIREMENT CALCULATION:
-        // Automatically required if depth exceeded 10m, or NDL <= 15m, or dive > 20 min
+        // In diving decompression theory:
+        // True Deco only occurs when NDL has elapsed to 0 AND raw ceiling is meaningful (>= 1.0m).
+        // Stops are quantized in 3-meter stages (3m, 6m, 9m...).
+        val isTrueDeco = ndl == 0 && rawCeiling >= 1.0
+        val stagedCeilingMeters = if (isTrueDeco) {
+            ceil(rawCeiling / 3.0) * 3.0
+        } else {
+            0.0
+        }
+
+        // 3. Safety Stop Trigger: Required if dive exceeded 10m depth, or NDL <= 15m, or dive > 20 min
         if (!isSafetyStopTriggered) {
             if (maxDepthSeen >= 10.0 || ndl <= 15 || newDiveTime >= 1200) {
                 isSafetyStopTriggered = true
-                // If dive was deep (>30m) or NDL critical (<= 5m), extend stop to 5 minutes
                 if (maxDepthSeen >= 30.0 || ndl <= 5) {
                     safetyStopTotalSec = 300
                     safetyStopRemainingSec = 300
@@ -176,12 +246,12 @@ class DiveStateManager(
             }
         }
 
-        // 2. SAFETY STOP STATE MACHINE:
+        // 4. State Machine: Deco vs Safety Stop vs Active Diving
         var safetyStatus = SafetyStopStatus.NOT_REQUIRED
         var phase = DivePhase.DIVING
 
-        if (ceiling > 0.5) {
-            // Deco stop takes precedence over safety stop
+        if (isTrueDeco) {
+            // True decompression stop obligation (overrides safety stop)
             phase = DivePhase.DECO_STOP
         } else if (isSafetyStopTriggered) {
             if (safetyStopCompleted) {
@@ -192,8 +262,7 @@ class DiveStateManager(
                     depthMeters in 3.0..6.0 -> {
                         phase = DivePhase.SAFETY_STOP
                         safetyStatus = SafetyStopStatus.IN_STOP_COUNTING
-                        // Active countdown
-                        safetyStopRemainingSec = max(0, (safetyStopRemainingSec - deltaSeconds).toInt())
+                        safetyStopRemainingSec = max(0, safetyStopRemainingSec - 1)
                         if (safetyStopRemainingSec == 0) {
                             safetyStopCompleted = true
                             safetyStatus = SafetyStopStatus.COMPLETED
@@ -219,21 +288,53 @@ class DiveStateManager(
 
         _telemetry.value = current.copy(
             phase = phase,
-            currentDepthMeters = depthMeters,
-            maxDepthMeters = maxDepthSeen,
-            averageDepthMeters = avgDepth,
             diveTimeSeconds = newDiveTime,
-            waterTemperatureCelsius = temperatureCelsius,
             ndlMinutes = ndl,
-            ceilingMeters = ceiling,
-            ascentRateMetersPerMin = instantAscentRate,
-            ascentRateStatus = ascentStatus,
+            ceilingMeters = stagedCeilingMeters,
+            currentPO2 = po2,
+            cnsPercent = cns,
             isSafetyStopRequired = isSafetyStopTriggered,
             safetyStopStatus = safetyStatus,
             safetyStopTotalSeconds = safetyStopTotalSec,
-            safetyStopRemainingSeconds = safetyStopRemainingSec,
-            currentPO2 = po2,
-            cnsPercent = cns
+            safetyStopRemainingSeconds = safetyStopRemainingSec
+        )
+    }
+
+    /**
+     * Backward-compatible simulator entry point
+     */
+    fun onNewDepthSample(depthMeters: Double, temperatureCelsius: Double, deltaSeconds: Double = 1.0) {
+        onDepthReading(depthMeters, temperatureCelsius)
+        val ticks = max(1, deltaSeconds.toInt())
+        for (i in 0 until ticks) {
+            onOneSecondTick()
+        }
+    }
+
+    /**
+     * Manually end dive immediately during surface interval without waiting 5 minutes
+     */
+    fun endDiveNow() {
+        if (isSubmerged || _telemetry.value.phase == DivePhase.SURFACING) {
+            isSubmerged = false
+            _telemetry.value = _telemetry.value.copy(
+                phase = DivePhase.COMPLETED,
+                surfaceIntervalRemainingSeconds = 0
+            )
+        }
+    }
+
+    /**
+     * Reset back to clean surface state ready for next dive
+     */
+    fun resetToSurface() {
+        isSubmerged = false
+        surfaceIntervalRemainingSec = 300
+        _telemetry.value = DiveTelemetry(
+            fractionO2 = _telemetry.value.fractionO2,
+            modMeters = _telemetry.value.modMeters,
+            compassHeadingDegrees = _telemetry.value.compassHeadingDegrees,
+            cardinalDirection = _telemetry.value.cardinalDirection
         )
     }
 }
