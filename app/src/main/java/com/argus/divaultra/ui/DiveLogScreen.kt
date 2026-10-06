@@ -435,11 +435,11 @@ private fun DiveLogDetailView(
                         .padding(6.dp)
                 ) {
                     Column {
-                        summary.entryGpsFormatted?.let {
-                            Text("ENTRY GPS: $it", color = ColorGarminCyan, fontSize = 8.sp, fontFamily = FontFamily.Monospace)
+                        if (summary.entryGpsFormatted != null) {
+                            Text("ENTRY GPS: ${summary.entryGpsFormatted}", color = ColorGarminCyan, fontSize = 8.sp, fontFamily = FontFamily.Monospace)
                         }
-                        summary.exitGpsFormatted?.let {
-                            Text("EXIT GPS:  $it", color = ColorGarminGreen, fontSize = 8.sp, fontFamily = FontFamily.Monospace)
+                        if (summary.exitGpsFormatted != null) {
+                            Text("EXIT GPS:  ${summary.exitGpsFormatted}", color = ColorGarminGreen, fontSize = 8.sp, fontFamily = FontFamily.Monospace)
                         }
                     }
                 }
