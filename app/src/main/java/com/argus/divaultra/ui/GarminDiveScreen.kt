@@ -79,18 +79,11 @@ fun GarminDiveScreen(
 
             Spacer(modifier = Modifier.height(2.dp))
 
-            // DYNAMIC CENTER: Giant Depth or Safety Stop Dashboard
-            if (telemetry.phase == DivePhase.SAFETY_STOP || telemetry.safetyStopStatus == SafetyStopStatus.COMPLETED) {
-                SafetyStopDashboard(
-                    telemetry = telemetry,
-                    modifier = Modifier.fillMaxWidth(0.84f)
-                )
-            } else {
-                StandardDepthDisplay(
-                    telemetry = telemetry,
-                    onEndDiveNow = onEndDiveNow
-                )
-            }
+            // CENTRAL DISPLAY: Massive Depth is ALWAYS visible and never blocked!
+            StandardDepthDisplay(
+                telemetry = telemetry,
+                onEndDiveNow = onEndDiveNow
+            )
 
             Spacer(modifier = Modifier.height(2.dp))
 
@@ -215,7 +208,7 @@ fun StandardDepthDisplay(
             )
         }
 
-        // Deco Warning Banner: Displayed ONLY during true mandatory staged decompression (NDL exhausted)
+        // 1. Mandatory Staged Deco Stop Obligation (Priority 1)
         if (telemetry.phase == DivePhase.DECO_STOP && telemetry.ceilingMeters >= 3.0) {
             Box(
                 modifier = Modifier
@@ -225,13 +218,69 @@ fun StandardDepthDisplay(
                     .padding(horizontal = 8.dp, vertical = 2.dp)
             ) {
                 Text(
-                    text = "DECO STOP: ${telemetry.ceilingMeters.toInt()} M",
+                    text = "🛑 DECO STOP: ${telemetry.ceilingMeters.toInt()} M",
                     color = ColorGarminRed,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Black
                 )
             }
-        } else if (telemetry.phase == DivePhase.SURFACING) {
+        }
+        // 2. Active Safety Stop Countdown (Priority 2) - Underneath Depth without blocking!
+        else if (telemetry.phase == DivePhase.SAFETY_STOP || telemetry.safetyStopStatus == SafetyStopStatus.IN_STOP_COUNTING) {
+            val min = telemetry.safetyStopRemainingSeconds / 60
+            val sec = telemetry.safetyStopRemainingSeconds % 60
+            Box(
+                modifier = Modifier
+                    .padding(top = 1.dp)
+                    .background(ColorGarminAmber.copy(alpha = 0.35f), RoundedCornerShape(6.dp))
+                    .border(1.dp, ColorGarminAmber, RoundedCornerShape(6.dp))
+                    .padding(horizontal = 8.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = String.format(Locale.US, "🛡️ STOP 5M %02d:%02d", min, sec),
+                    color = ColorGarminAmber,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Black,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+        }
+        // 3. Safety Stop Completed Clear Banner (Priority 3)
+        else if (telemetry.safetyStopStatus == SafetyStopStatus.COMPLETED) {
+            Box(
+                modifier = Modifier
+                    .padding(top = 1.dp)
+                    .background(ColorGarminGreen.copy(alpha = 0.30f), RoundedCornerShape(6.dp))
+                    .border(1.dp, ColorGarminGreen, RoundedCornerShape(6.dp))
+                    .padding(horizontal = 8.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = "✅ STOP COMPLETE",
+                    color = ColorGarminGreen,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+        // 4. Safety Stop Required Notice (approaching 3-5m or at bottom)
+        else if (telemetry.safetyStopStatus == SafetyStopStatus.REQUIRED_PENDING) {
+            Box(
+                modifier = Modifier
+                    .padding(top = 1.dp)
+                    .background(ColorSurfaceGray.copy(alpha = 0.8f), RoundedCornerShape(6.dp))
+                    .border(1.dp, ColorGarminAmber.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                    .padding(horizontal = 7.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = "STOP 3-5M REQ",
+                    color = ColorGarminAmber,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+        // 5. Surface Interval Hysteresis Banner (Priority 5)
+        else if (telemetry.phase == DivePhase.SURFACING) {
             val surfMin = telemetry.surfaceIntervalRemainingSeconds / 60
             val surfSec = telemetry.surfaceIntervalRemainingSeconds % 60
             Box(

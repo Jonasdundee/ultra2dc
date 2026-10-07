@@ -35,6 +35,22 @@ data class DiveProfileSample(
     val tempCelsius: Double
 )
 
+object CalorieCalc {
+    // Compendium of Physical Activities — code 18310 (Scuba diving, recreational)
+    const val BASELINE_METS = 7.0
+    const val DIVER_WEIGHT_KG = 96.0 // Jonas's body mass
+    const val THERMAL_NEUTRAL_C = 24.0
+
+    fun calculateKcal(durationSeconds: Long, waterTempCelsius: Double = 24.0, weightKg: Double = DIVER_WEIGHT_KG): Int {
+        val diveMinutes = durationSeconds / 60.0
+        val deltaT = (THERMAL_NEUTRAL_C - waterTempCelsius).coerceAtLeast(0.0)
+        val thermalBoost = (0.02 * deltaT).coerceAtMost(0.40)
+        val effectiveMets = BASELINE_METS * (1.0 + thermalBoost)
+        val kcal = (effectiveMets * 3.5 * weightKg / 200.0) * diveMinutes
+        return kotlin.math.round(kcal).toInt()
+    }
+}
+
 data class DiveLogSummary(
     val diveId: String,
     val startTimeFormatted: String,
@@ -46,7 +62,8 @@ data class DiveLogSummary(
     val safetyStopCompleted: Boolean,
     val entryGpsFormatted: String?,
     val exitGpsFormatted: String?,
-    val sampleCount: Int
+    val sampleCount: Int,
+    val caloriesKcal: Int = 0
 )
 
 data class DiveLogDetails(
@@ -131,6 +148,8 @@ class DiveLogManager(private val context: Context) {
             root.put("max_depth_meters", telemetry.maxDepthMeters)
             root.put("water_temperature_celsius", telemetry.waterTemperatureCelsius)
             root.put("safety_stop_completed", telemetry.safetyStopStatus == SafetyStopStatus.COMPLETED)
+            val calories = CalorieCalc.calculateKcal(telemetry.diveTimeSeconds, telemetry.waterTemperatureCelsius)
+            root.put("calories_kcal", calories)
 
             // Entry GPS
             entryGps?.let {
@@ -244,6 +263,8 @@ class DiveLogManager(private val context: Context) {
                     avgDepth = depthSum / sampleCount
                 }
 
+                val calories = json.optInt("calories_kcal", CalorieCalc.calculateKcal(durationSec, temp))
+
                 list.add(
                     DiveLogSummary(
                         diveId = diveId,
@@ -256,7 +277,8 @@ class DiveLogManager(private val context: Context) {
                         safetyStopCompleted = safetyStop,
                         entryGpsFormatted = entryGpsStr,
                         exitGpsFormatted = exitGpsStr,
-                        sampleCount = sampleCount
+                        sampleCount = sampleCount,
+                        caloriesKcal = calories
                     )
                 )
             } catch (e: Exception) {
@@ -318,7 +340,7 @@ class DiveLogManager(private val context: Context) {
                 }
             }
 
-            val avgDepth = if (sampleCount > 0) depthSum / sampleCount else 0.0
+            val calories = json.optInt("calories_kcal", CalorieCalc.calculateKcal(durationSec, temp))
 
             val summary = DiveLogSummary(
                 diveId = diveId,
@@ -331,7 +353,8 @@ class DiveLogManager(private val context: Context) {
                 safetyStopCompleted = safetyStop,
                 entryGpsFormatted = entryGpsStr,
                 exitGpsFormatted = exitGpsStr,
-                sampleCount = sampleCount
+                sampleCount = sampleCount,
+                caloriesKcal = calories
             )
 
             DiveLogDetails(summary = summary, samples = profileSamples)

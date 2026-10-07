@@ -253,14 +253,28 @@ private fun DiveLogSummaryCard(
                 }
             }
 
-            // Row 3: Safety stop badge if completed
-            if (log.safetyStopCompleted) {
-                Spacer(modifier = Modifier.height(3.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
+            // Row 3: Safety stop & Calories badge
+            Spacer(modifier = Modifier.height(3.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (log.safetyStopCompleted) {
                     Text(
-                        text = "✅ 3-MIN SAFETY STOP COMPLETED",
+                        text = "✅ 3-MIN STOP DONE",
                         color = ColorGarminGreen,
                         fontSize = 8.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                } else {
+                    Spacer(modifier = Modifier.width(1.dp))
+                }
+                if (log.caloriesKcal > 0) {
+                    Text(
+                        text = "🔥 ${log.caloriesKcal} KCAL",
+                        color = ColorGarminAmber,
+                        fontSize = 9.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -386,12 +400,26 @@ private fun DiveLogDetailView(
 
                     Spacer(modifier = Modifier.height(4.dp))
 
-                    Text(
-                        text = if (summary.safetyStopCompleted) "SAFETY STOP: COMPLETED ✅" else "SAFETY STOP: NONE",
-                        color = if (summary.safetyStopCompleted) ColorGarminGreen else ColorTextMuted,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (summary.safetyStopCompleted) "SAFETY STOP: DONE ✅" else "SAFETY STOP: NONE",
+                            color = if (summary.safetyStopCompleted) ColorGarminGreen else ColorTextMuted,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        if (summary.caloriesKcal > 0) {
+                            Text(
+                                text = "🔥 ${summary.caloriesKcal} KCAL",
+                                color = ColorGarminAmber,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
                 }
             }
         }

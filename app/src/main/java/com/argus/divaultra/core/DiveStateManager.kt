@@ -255,7 +255,15 @@ class DiveStateManager(
             phase = DivePhase.DECO_STOP
         } else if (isSafetyStopTriggered) {
             if (safetyStopCompleted) {
-                safetyStatus = SafetyStopStatus.COMPLETED
+                // PADI Standard Rule: If diver redescends below 9m after a shallow stop,
+                // reset safety stop requirement for the actual final ascent!
+                if (depthMeters >= 9.0) {
+                    safetyStopCompleted = false
+                    safetyStopRemainingSec = safetyStopTotalSec
+                    safetyStatus = SafetyStopStatus.REQUIRED_PENDING
+                } else {
+                    safetyStatus = SafetyStopStatus.COMPLETED
+                }
             } else {
                 when {
                     // Inside Safety Stop Window (3.0m - 6.0m)

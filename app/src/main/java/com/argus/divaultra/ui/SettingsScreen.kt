@@ -96,7 +96,7 @@ fun SettingsScreen(
         // 3. Quick Nitrox Presets
         item {
             Text(
-                text = "NITROX PRESETS",
+                text = "POPULAR PRESETS",
                 color = ColorTextMuted,
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
@@ -106,51 +106,66 @@ fun SettingsScreen(
 
         item {
             Row(
-                modifier = Modifier.fillMaxWidth(0.9f),
+                modifier = Modifier.fillMaxWidth(0.95f),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                GasPresetButton("28%", 0.28, telemetry.fractionO2, onGasSelected)
+                GasPresetButton("29%", 0.29, telemetry.fractionO2, onGasSelected)
+                GasPresetButton("30%", 0.30, telemetry.fractionO2, onGasSelected)
+                GasPresetButton("32%", 0.32, telemetry.fractionO2, onGasSelected)
+            }
+        }
+
+        item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth(0.95f)
+                    .padding(top = 4.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
                 GasPresetButton("AIR", 0.21, telemetry.fractionO2, onGasSelected)
-                GasPresetButton("32%", 0.32, telemetry.fractionO2, onGasSelected)
+                GasPresetButton("34%", 0.34, telemetry.fractionO2, onGasSelected)
                 GasPresetButton("36%", 0.36, telemetry.fractionO2, onGasSelected)
                 GasPresetButton("40%", 0.40, telemetry.fractionO2, onGasSelected)
             }
         }
 
-        // 4. Fine O2 Stepper (+ / -)
+        // 4. Precise 1% O2 Stepper (+ / -)
         item {
+            val currentPct = kotlin.math.round(telemetry.fractionO2 * 100).toInt()
             Row(
                 modifier = Modifier
-                    .fillMaxWidth(0.85f)
-                    .padding(vertical = 4.dp),
+                    .fillMaxWidth(0.88f)
+                    .padding(vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 CompactButton(
                     onClick = {
-                        val newMix = (telemetry.fractionO2 - 0.01).coerceIn(0.21, 0.50)
-                        onGasSelected(newMix)
+                        val next = (currentPct - 1).coerceIn(21, 40)
+                        onGasSelected(next / 100.0)
                     },
                     colors = ButtonDefaults.secondaryButtonColors(backgroundColor = ColorSurfaceGray)
                 ) {
-                    Text("-1%", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text("-1%", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Black)
                 }
 
                 Text(
-                    text = "${(telemetry.fractionO2 * 100).toInt()}% O2",
+                    text = "$currentPct% O2",
                     color = Color.White,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Black,
                     fontFamily = FontFamily.Monospace
                 )
 
                 CompactButton(
                     onClick = {
-                        val newMix = (telemetry.fractionO2 + 0.01).coerceIn(0.21, 0.50)
-                        onGasSelected(newMix)
+                        val next = (currentPct + 1).coerceIn(21, 40)
+                        onGasSelected(next / 100.0)
                     },
                     colors = ButtonDefaults.secondaryButtonColors(backgroundColor = ColorSurfaceGray)
                 ) {
-                    Text("+1%", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text("+1%", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Black)
                 }
             }
         }
