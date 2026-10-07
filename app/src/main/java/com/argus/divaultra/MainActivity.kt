@@ -205,11 +205,11 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
                                     currentScreen = "settings"
                                 }
                             },
+                            onOpenLogs = {
+                                currentScreen = "logs"
+                            },
                             onEndDiveNow = {
                                 stateManager.endDiveNow()
-                            },
-                            onReturnToWatchface = {
-                                currentScreen = "watchface"
                             }
                         )
                     }

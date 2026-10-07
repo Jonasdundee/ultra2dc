@@ -130,13 +130,13 @@ fun GarminDiveScreen(
 }
 
 /**
- * Upper Indicators: TIME (left) and EANx (right) positioned in the wide upper-middle
+ * Upper Indicators: TIME (left) and EANx/LOGS (right) positioned in the wide upper-middle
  */
 @Composable
 fun TopStatusBar(
     telemetry: DiveTelemetry,
     onOpenSettings: () -> Unit,
-    onReturnToWatchface: (() -> Unit)? = null,
+    onOpenLogs: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -158,21 +158,38 @@ fun TopStatusBar(
             )
         }
 
-        // Surface Mode: Clickable Setup Badge; Dive Mode: Gas Mix Badge
+        // Surface Mode: Clickable Setup & Logs Badges; Dive Mode: Gas Mix Badge
         if (telemetry.phase == DivePhase.SURFACE || telemetry.phase == DivePhase.COMPLETED) {
-            Box(
-                modifier = Modifier
-                    .background(ColorSurfaceGray, RoundedCornerShape(8.dp))
-                    .border(1.dp, ColorGarminCyan.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
-                    .clickable { onOpenSettings() }
-                    .padding(horizontal = 8.dp, vertical = 3.dp)
-            ) {
-                Text(
-                    text = "⚙ EAN${(telemetry.fractionO2 * 100).toInt()}",
-                    color = ColorGarminCyan,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Black
-                )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .background(ColorSurfaceGray, RoundedCornerShape(8.dp))
+                        .border(1.dp, ColorGarminGreen.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                        .clickable { onOpenLogs() }
+                        .padding(horizontal = 6.dp, vertical = 3.dp)
+                ) {
+                    Text(
+                        text = "📖 LOGS",
+                        color = ColorGarminGreen,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Spacer(modifier = Modifier.width(4.dp))
+                Box(
+                    modifier = Modifier
+                        .background(ColorSurfaceGray, RoundedCornerShape(8.dp))
+                        .border(1.dp, ColorGarminCyan.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                        .clickable { onOpenSettings() }
+                        .padding(horizontal = 6.dp, vertical = 3.dp)
+                ) {
+                    Text(
+                        text = "⚙ EAN${(telemetry.fractionO2 * 100).toInt()}",
+                        color = ColorGarminCyan,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Black
+                    )
+                }
             }
         } else {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -205,7 +222,8 @@ fun TopStatusBar(
 }
 
 /**
- * Standard Depth Display: Massive digits with elevated "M" unit
+ * Standard Depth Display: Massive digits with METERS centered underneath
+ * (Depth is NEVER blocked - stop info displays underneath)
  */
 @Composable
 fun StandardDepthDisplay(
@@ -216,28 +234,15 @@ fun StandardDepthDisplay(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Row(
-            verticalAlignment = Alignment.Bottom,
-            horizontalArrangement = Arrangement.Center
-        ) {
-            Text(
-                text = String.format(Locale.US, "%.1f", telemetry.currentDepthMeters),
-                color = Color.White,
-                fontSize = 48.sp,
-                fontWeight = FontWeight.Black,
-                fontFamily = FontFamily.Monospace
-            )
-            Spacer(modifier = Modifier.width(4.dp))
-            Text(
-                text = "M",
-                color = ColorGarminCyan,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Black,
-                modifier = Modifier.padding(bottom = 6.dp)
-            )
-        }
+        Text(
+            text = String.format(Locale.US, "%.1f", telemetry.currentDepthMeters),
+            color = Color.White,
+            fontSize = 52.sp,
+            fontWeight = FontWeight.Black,
+            fontFamily = FontFamily.Monospace
+        )
 
-        // 1. Mandatory Staged Deco Stop Obligation (Priority 1)
+        // Depth Unit / Active Stop Sub-banner
         if (telemetry.phase == DivePhase.DECO_STOP && telemetry.ceilingMeters >= 3.0) {
             Box(
                 modifier = Modifier
@@ -328,6 +333,16 @@ fun StandardDepthDisplay(
                     fontFamily = FontFamily.Monospace
                 )
             }
+        }
+        // Normal Dive / Surface State: Clean METERS label
+        else {
+            Text(
+                text = "METERS",
+                color = ColorGarminCyan,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 1.5.sp
+            )
         }
     }
 }
@@ -616,7 +631,7 @@ fun AscentRateArcGauge(
 
 /**
  * Tactical Compass Heading Indicator:
- * Pinned ~5mm down in the upper-middle (top = 40.dp) with bold degree readout and cardinal direction
+ * Sleek, bezel-aligned top arc with compact numeric degree readout
  */
 @Composable
 fun CompassTopArcGauge(
@@ -625,26 +640,27 @@ fun CompassTopArcGauge(
     modifier: Modifier = Modifier
 ) {
     Box(modifier = modifier, contentAlignment = Alignment.TopCenter) {
-        // Subtle top guide arc & moving cyan tracking dot
         Canvas(modifier = Modifier.fillMaxSize()) {
-            val strokeWidth = 3.5.dp.toPx()
-            val diameter = size.minDimension - strokeWidth - 24.dp.toPx()
+            val strokeWidth = 5.dp.toPx()
+            val diameter = size.minDimension - strokeWidth - 6.dp.toPx()
             val topLeft = Offset((size.width - diameter) / 2, (size.height - diameter) / 2)
             val arcSize = Size(diameter, diameter)
 
+            // Top arc from 220° to 320° (100° sweep centered at 270° / 12 o'clock)
             drawArc(
-                color = ColorSurfaceGray.copy(alpha = 0.4f),
-                startAngle = 240f,
-                sweepAngle = 60f,
+                color = ColorSurfaceGray,
+                startAngle = 220f,
+                sweepAngle = 100f,
                 useCenter = false,
                 topLeft = topLeft,
                 size = arcSize,
                 style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
             )
 
+            // Dynamic Compass Needle / Cursor Tick along the top arc
             val normalizedHeading = (headingDegrees % 360f + 360f) % 360f
-            val headingSweepOffset = ((normalizedHeading / 360f) * 60f) - 30f
-            val cursorAngle = 270f + headingSweepOffset.coerceIn(-28f, 28f)
+            val headingSweepOffset = ((normalizedHeading / 360f) * 100f) - 50f
+            val cursorAngle = 270f + headingSweepOffset.coerceIn(-48f, 48f)
 
             val rad = Math.toRadians(cursorAngle.toDouble())
             val radius = diameter / 2f
@@ -655,29 +671,27 @@ fun CompassTopArcGauge(
 
             drawCircle(
                 color = ColorGarminCyan,
-                radius = 4.dp.toPx(),
+                radius = 3.5.dp.toPx(),
                 center = Offset(cursorX, cursorY)
             )
         }
 
-        // Digital Heading Readout Badge (~5mm down in the middle)
+        // Sleek compact heading badge pinned right at top bezel
         Box(
             modifier = Modifier
-                .padding(top = 40.dp)
-                .background(ColorSurfaceGray.copy(alpha = 0.95f), RoundedCornerShape(8.dp))
-                .border(1.dp, ColorGarminCyan.copy(alpha = 0.45f), RoundedCornerShape(8.dp))
-                .padding(horizontal = 10.dp, vertical = 3.dp)
+                .padding(top = 4.dp)
+                .background(ColorSurfaceGray.copy(alpha = 0.85f), RoundedCornerShape(6.dp))
+                .border(0.5.dp, ColorGarminCyan.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
+                .padding(horizontal = 7.dp, vertical = 2.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "🧭 ${headingDegrees.toInt()}° $cardinal",
-                    color = ColorGarminCyan,
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.Black,
-                    fontFamily = FontFamily.Monospace,
-                    letterSpacing = 1.sp
-                )
-            }
+            Text(
+                text = "${headingDegrees.toInt()}° $cardinal",
+                color = ColorGarminCyan,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.ExtraBold,
+                fontFamily = FontFamily.Monospace,
+                letterSpacing = 0.5.sp
+            )
         }
     }
 }
