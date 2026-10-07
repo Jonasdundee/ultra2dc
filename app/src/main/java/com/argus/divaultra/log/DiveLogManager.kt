@@ -340,6 +340,7 @@ class DiveLogManager(private val context: Context) {
                 }
             }
 
+            val avgDepth = if (sampleCount > 0) depthSum / sampleCount else 0.0
             val calories = json.optInt("calories_kcal", CalorieCalc.calculateKcal(durationSec, temp))
 
             val summary = DiveLogSummary(
