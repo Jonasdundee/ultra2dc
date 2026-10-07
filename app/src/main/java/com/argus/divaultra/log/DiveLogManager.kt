@@ -128,6 +128,11 @@ class DiveLogManager(private val context: Context) {
         }
     }
 
+    fun addMarker(label: String) {
+        val markerText = "[$label @ ${lastSampleSecond}s]"
+        Log.i(tag, "Recorded Tactical Event Marker: $markerText")
+    }
+
     fun endDiveLog(telemetry: DiveTelemetry): File? {
         if (!isRecording && samples.isEmpty()) return null
         isRecording = false

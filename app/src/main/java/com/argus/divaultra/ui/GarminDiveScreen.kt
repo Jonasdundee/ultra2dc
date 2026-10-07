@@ -5,8 +5,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import com.argus.divaultra.log.CalorieCalc
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -63,42 +65,65 @@ fun GarminDiveScreen(
             modifier = Modifier.fillMaxSize()
         )
 
-        // 3. Central Tactical Cluster - 4 indicators brought inward around Depth
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(top = 70.dp, bottom = 12.dp)
-        ) {
-            // UPPER INDICATORS (Above Depth): TIME on left, EANx on right
-            TopStatusBar(
+        // 3. Central Tactical Cluster / Active Multi-Page HUD
+        when (telemetry.underwaterScreenIndex) {
+            1 -> CompassNavigationHud(
                 telemetry = telemetry,
                 onOpenSettings = onOpenSettings,
-                onReturnToWatchface = onReturnToWatchface,
-                modifier = Modifier.fillMaxWidth(0.80f)
+                onReturnToWatchface = onReturnToWatchface
             )
-
-            Spacer(modifier = Modifier.height(2.dp))
-
-            // CENTRAL DISPLAY: Massive Depth is ALWAYS visible and never blocked!
-            StandardDepthDisplay(
+            2 -> BuhlmannTissueLoadingHud(
                 telemetry = telemetry,
-                onEndDiveNow = onEndDiveNow
+                onOpenSettings = onOpenSettings,
+                onReturnToWatchface = onReturnToWatchface
             )
-
-            Spacer(modifier = Modifier.height(2.dp))
-
-            // LOWER INDICATORS (Below Depth): MAX Depth on left, Water Temp on right
-            MiddleBottomDataBar(
+            3 -> DetailedDiveStatsHud(
                 telemetry = telemetry,
-                modifier = Modifier.fillMaxWidth(0.80f)
+                onOpenSettings = onOpenSettings,
+                onReturnToWatchface = onReturnToWatchface
             )
+            else -> {
+                // Central Tactical Cluster (Standard Primary Depth Screen 0)
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(top = 70.dp, bottom = 8.dp)
+                ) {
+                    // UPPER INDICATORS (Above Depth): TIME on left, EANx on right
+                    TopStatusBar(
+                        telemetry = telemetry,
+                        onOpenSettings = onOpenSettings,
+                        onReturnToWatchface = onReturnToWatchface,
+                        modifier = Modifier.fillMaxWidth(0.80f)
+                    )
 
-            Spacer(modifier = Modifier.height(5.dp))
+                    Spacer(modifier = Modifier.height(2.dp))
 
-            // BOTTOM CENTER: Prominent NDL Safety Pill
-            NdlSafetyPill(telemetry = telemetry)
+                    // CENTRAL DISPLAY: Massive Depth is ALWAYS visible and never blocked!
+                    StandardDepthDisplay(
+                        telemetry = telemetry,
+                        onEndDiveNow = onEndDiveNow
+                    )
+
+                    Spacer(modifier = Modifier.height(2.dp))
+
+                    // LOWER INDICATORS (Below Depth): MAX Depth on left, Water Temp on right
+                    MiddleBottomDataBar(
+                        telemetry = telemetry,
+                        modifier = Modifier.fillMaxWidth(0.80f)
+                    )
+
+                    Spacer(modifier = Modifier.height(5.dp))
+
+                    // BOTTOM CENTER: Prominent NDL Safety Pill
+                    NdlSafetyPill(telemetry = telemetry)
+
+                    Spacer(modifier = Modifier.height(4.dp))
+                    PageDotsIndicator(selectedIndex = 0)
+                }
+            }
         }
     }
 }
@@ -672,5 +697,379 @@ fun CompassTopArcGauge(
                 )
             }
         }
+    }
+}
+
+@Composable
+fun PageDotsIndicator(selectedIndex: Int, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier.padding(bottom = 2.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        for (i in 0 until 4) {
+            Box(
+                modifier = Modifier
+                    .size(if (i == selectedIndex) 6.dp else 4.dp)
+                    .clip(CircleShape)
+                    .background(if (i == selectedIndex) ColorGarminCyan else ColorSurfaceGray)
+            )
+            if (i < 3) Spacer(modifier = Modifier.width(4.dp))
+        }
+    }
+}
+
+@Composable
+fun CompassNavigationHud(
+    telemetry: DiveTelemetry,
+    onOpenSettings: () -> Unit,
+    onReturnToWatchface: (() -> Unit)?,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+        modifier = modifier
+            .fillMaxSize()
+            .padding(top = 68.dp, bottom = 10.dp)
+    ) {
+        TopStatusBar(
+            telemetry = telemetry,
+            onOpenSettings = onOpenSettings,
+            onReturnToWatchface = onReturnToWatchface,
+            modifier = Modifier.fillMaxWidth(0.80f)
+        )
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.88f)
+                .background(ColorCardBackground, RoundedCornerShape(12.dp))
+                .border(1.dp, ColorGarminCyan.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                .padding(10.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = "🧭 TACTICAL COMPASS",
+                    color = ColorGarminCyan,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Black
+                )
+                Text(
+                    text = "${telemetry.compassHeadingDegrees.toInt()}° ${telemetry.cardinalDirection}",
+                    color = Color.White,
+                    fontSize = 26.sp,
+                    fontWeight = FontWeight.Black,
+                    fontFamily = FontFamily.Monospace
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                val locked = telemetry.lockedBearingDegrees
+                if (locked != null) {
+                    val diff = ((telemetry.compassHeadingDegrees - locked + 540f) % 360f) - 180f
+                    val deviationText = when {
+                        kotlin.math.abs(diff) <= 5f -> "ON COURSE ✅"
+                        diff > 0 -> String.format(Locale.US, "◀ %d° PORT", diff.toInt())
+                        else -> String.format(Locale.US, "▶ %d° STBD", (-diff).toInt())
+                    }
+                    val deviationColor = if (kotlin.math.abs(diff) <= 5f) ColorGarminGreen else ColorGarminAmber
+
+                    Box(
+                        modifier = Modifier
+                            .background(ColorSurfaceGray, RoundedCornerShape(6.dp))
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                    ) {
+                        Text(
+                            text = "🔒 LOCKED: ${locked.toInt()}° · $deviationText",
+                            color = deviationColor,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                } else {
+                    Text(
+                        text = "HOLD ORANGE BUTTON TO LOCK BEARING",
+                        color = ColorTextMuted,
+                        fontSize = 8.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(0.78f),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = String.format(Locale.US, "DEPTH: %.1f M", telemetry.currentDepthMeters),
+                color = ColorGarminCyan,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Black
+            )
+            Text(
+                text = "NDL: ${telemetry.ndlMinutes} MIN",
+                color = if (telemetry.ndlMinutes <= 5) ColorGarminAmber else ColorGarminGreen,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        Spacer(modifier = Modifier.height(4.dp))
+        PageDotsIndicator(selectedIndex = 1)
+    }
+}
+
+@Composable
+fun BuhlmannTissueLoadingHud(
+    telemetry: DiveTelemetry,
+    onOpenSettings: () -> Unit,
+    onReturnToWatchface: (() -> Unit)?,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+        modifier = modifier
+            .fillMaxSize()
+            .padding(top = 68.dp, bottom = 10.dp)
+    ) {
+        TopStatusBar(
+            telemetry = telemetry,
+            onOpenSettings = onOpenSettings,
+            onReturnToWatchface = onReturnToWatchface,
+            modifier = Modifier.fillMaxWidth(0.80f)
+        )
+
+        Spacer(modifier = Modifier.height(3.dp))
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.92f)
+                .background(ColorCardBackground, RoundedCornerShape(12.dp))
+                .border(1.dp, ColorSurfaceGray, RoundedCornerShape(12.dp))
+                .padding(horizontal = 8.dp, vertical = 6.dp)
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "BÜHLMANN ZHL-16C TISSUES",
+                        color = ColorGarminCyan,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Black
+                    )
+                    Text(
+                        text = if (telemetry.ceilingMeters > 0) "CEIL: ${telemetry.ceilingMeters.toInt()}M" else "NO DECO",
+                        color = if (telemetry.ceilingMeters > 0) ColorGarminRed else ColorGarminGreen,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(46.dp)
+                ) {
+                    val count = 16
+                    val barWidth = (size.width / count) * 0.75f
+                    val spacing = size.width / count
+
+                    for (i in 0 until count) {
+                        val sat = telemetry.tissueSaturations.getOrElse(i) { 0.05f }
+                        val barHeight = (sat.coerceIn(0.05f, 1.2f) * size.height).coerceAtMost(size.height)
+                        val color = when {
+                            sat > 0.95f -> ColorGarminRed
+                            sat > 0.75f -> ColorGarminAmber
+                            else -> ColorGarminGreen
+                        }
+                        val x = i * spacing + (spacing - barWidth) / 2f
+                        val y = size.height - barHeight
+
+                        drawRect(
+                            color = color,
+                            topLeft = Offset(x, y),
+                            size = Size(barWidth, barHeight)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(3.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("1 (4m)", color = ColorTextMuted, fontSize = 7.sp)
+                    Text("8 (77m)", color = ColorTextMuted, fontSize = 7.sp)
+                    Text("16 (635m)", color = ColorTextMuted, fontSize = 7.sp)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(0.78f),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = String.format(Locale.US, "DEPTH: %.1f M", telemetry.currentDepthMeters),
+                color = ColorGarminCyan,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Black
+            )
+            Text(
+                text = "NDL: ${telemetry.ndlMinutes} MIN",
+                color = if (telemetry.ndlMinutes <= 5) ColorGarminAmber else ColorGarminGreen,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        Spacer(modifier = Modifier.height(4.dp))
+        PageDotsIndicator(selectedIndex = 2)
+    }
+}
+
+@Composable
+fun DetailedDiveStatsHud(
+    telemetry: DiveTelemetry,
+    onOpenSettings: () -> Unit,
+    onReturnToWatchface: (() -> Unit)?,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+        modifier = modifier
+            .fillMaxSize()
+            .padding(top = 68.dp, bottom = 10.dp)
+    ) {
+        TopStatusBar(
+            telemetry = telemetry,
+            onOpenSettings = onOpenSettings,
+            onReturnToWatchface = onReturnToWatchface,
+            modifier = Modifier.fillMaxWidth(0.80f)
+        )
+
+        Spacer(modifier = Modifier.height(3.dp))
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.90f)
+                .background(ColorCardBackground, RoundedCornerShape(12.dp))
+                .border(1.dp, ColorSurfaceGray, RoundedCornerShape(12.dp))
+                .padding(8.dp)
+        ) {
+            Column {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column {
+                        Text("MAX DEPTH", color = ColorTextMuted, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = String.format(Locale.US, "%.1f M", telemetry.maxDepthMeters),
+                            color = ColorGarminCyan,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text("AVG DEPTH", color = ColorTextMuted, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = String.format(Locale.US, "%.1f M", telemetry.averageDepthMeters),
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column {
+                        Text("PO2 / MOD", color = ColorTextMuted, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = String.format(Locale.US, "%.2f / %.1fM", telemetry.currentPO2, telemetry.modMeters),
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text("WATER TEMP", color = ColorTextMuted, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = String.format(Locale.US, "%.1f °C", telemetry.waterTemperatureCelsius),
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "CNS O2: ${telemetry.cnsPercent.toInt()}%",
+                        color = if (telemetry.cnsPercent > 80) ColorGarminRed else ColorGarminGreen,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "ENERGY: ${CalorieCalc.calculateKcal(telemetry.diveTimeSeconds, telemetry.waterTemperatureCelsius)} KCAL",
+                        color = ColorGarminAmber,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(0.78f),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = String.format(Locale.US, "DEPTH: %.1f M", telemetry.currentDepthMeters),
+                color = ColorGarminCyan,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Black
+            )
+            Text(
+                text = "NDL: ${telemetry.ndlMinutes} MIN",
+                color = if (telemetry.ndlMinutes <= 5) ColorGarminAmber else ColorGarminGreen,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        Spacer(modifier = Modifier.height(4.dp))
+        PageDotsIndicator(selectedIndex = 3)
     }
 }

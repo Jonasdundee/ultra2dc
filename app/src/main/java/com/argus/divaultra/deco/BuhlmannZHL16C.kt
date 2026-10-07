@@ -216,4 +216,19 @@ class BuhlmannZHL16C(
 
         return min(99, max(0, minNDL.toInt()))
     }
+
+    /**
+     * Returns the relative saturation fraction (0.0 to 1.0+) for all 16 tissue compartments.
+     */
+    fun getCompartmentSaturationFractions(): FloatArray {
+        val result = FloatArray(16)
+        val pSurf = surfacePressureBar
+        val pN2_surf = (pSurf - WATER_VAPOR_PRESSURE) * 0.7902
+        for (i in 0 until 16) {
+            val pTol = (tissueP_N2[i] - COMPARTMENTS[i].a * COMPARTMENTS[i].b) / COMPARTMENTS[i].b
+            val fraction = ((tissueP_N2[i] - pN2_surf) / (pTol - pN2_surf).coerceAtLeast(0.01)).coerceIn(0.0, 1.2)
+            result[i] = fraction.toFloat()
+        }
+        return result
+    }
 }

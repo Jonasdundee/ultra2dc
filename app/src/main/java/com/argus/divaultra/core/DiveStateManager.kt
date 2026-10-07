@@ -60,7 +60,12 @@ data class DiveTelemetry(
     val compassHeadingDegrees: Float = 245f,
     val cardinalDirection: String = "SW",
     // Surface Interval Hysteresis (5 minutes countdown upon surfacing)
-    val surfaceIntervalRemainingSeconds: Int = 300
+    val surfaceIntervalRemainingSeconds: Int = 300,
+    // Tactile Button & Underwater HUD States
+    val underwaterScreenIndex: Int = 0,
+    val isBacklightBoosted: Boolean = false,
+    val lockedBearingDegrees: Float? = null,
+    val tissueSaturations: FloatArray = FloatArray(16) { 0.05f }
 )
 
 class DiveStateManager(
@@ -304,8 +309,35 @@ class DiveStateManager(
             isSafetyStopRequired = isSafetyStopTriggered,
             safetyStopStatus = safetyStatus,
             safetyStopTotalSeconds = safetyStopTotalSec,
-            safetyStopRemainingSeconds = safetyStopRemainingSec
+            safetyStopRemainingSeconds = safetyStopRemainingSec,
+            tissueSaturations = decoEngine.getCompartmentSaturationFractions()
         )
+    }
+
+    /**
+     * Cycles through underwater screens (0: Main, 1: Compass HUD, 2: Bühlmann Tissues, 3: Gas/Stats)
+     */
+    fun cycleUnderwaterScreen() {
+        val next = (_telemetry.value.underwaterScreenIndex + 1) % 4
+        _telemetry.value = _telemetry.value.copy(underwaterScreenIndex = next)
+    }
+
+    /**
+     * Toggles tactical backlight boost
+     */
+    fun toggleBacklightBoost() {
+        val next = !_telemetry.value.isBacklightBoosted
+        _telemetry.value = _telemetry.value.copy(isBacklightBoosted = next)
+    }
+
+    /**
+     * Toggles compass bearing lock (course pin)
+     */
+    fun toggleBearingLock() {
+        val current = _telemetry.value.lockedBearingDegrees
+        val heading = _telemetry.value.compassHeadingDegrees
+        val next = if (current == null) heading else null
+        _telemetry.value = _telemetry.value.copy(lockedBearingDegrees = next)
     }
 
     /**

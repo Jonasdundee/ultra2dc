@@ -14,6 +14,7 @@ import android.os.Bundle
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import android.view.KeyEvent
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -57,6 +58,7 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
     private var currentTempCelsius = 24.0
     private var isSimulating = false
     private var hasDiveLogStarted = false
+    private var currentScreen by mutableStateOf("watchface")
 
     private val rotationMatrix = FloatArray(9)
     private val orientationAngles = FloatArray(3)
@@ -141,7 +143,6 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
 
         setContent {
             val telemetry by stateManager.telemetry.collectAsState()
-            var currentScreen by remember { mutableStateOf("watchface") }
             var noFlyStatus by remember { mutableStateOf(noFlyManager.calculateStatus(telemetry.phase, telemetry.diveTimeSeconds)) }
 
             // Live 1-second update for No-Fly calculation
@@ -352,5 +353,103 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
             getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
         }
         vibrator.vibrate(VibrationEffect.createWaveform(timings, -1))
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        if (event?.repeatCount == 0) {
+            event.startTracking()
+        }
+        val isUnderwater = stateManager.telemetry.value.phase != DivePhase.SURFACE && stateManager.telemetry.value.phase != DivePhase.COMPLETED
+        return when (keyCode) {
+            KeyEvent.KEYCODE_STEM_1, KeyEvent.KEYCODE_BUTTON_1, KeyEvent.KEYCODE_FUNCTION -> true
+            KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_STEM_2 -> {
+                if (isUnderwater) true else super.onKeyDown(keyCode, event)
+            }
+            KeyEvent.KEYCODE_STEM_PRIMARY, KeyEvent.KEYCODE_NAVIGATE_NEXT -> {
+                if (isUnderwater) true else super.onKeyDown(keyCode, event)
+            }
+            else -> super.onKeyDown(keyCode, event)
+        }
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent?): Boolean {
+        val isUnderwater = stateManager.telemetry.value.phase != DivePhase.SURFACE && stateManager.telemetry.value.phase != DivePhase.COMPLETED
+
+        if (event?.isTracking == true && !event.isCanceled) {
+            when (keyCode) {
+                // 🟠 MIDDLE ORANGE QUICK BUTTON: SHORT PRESS -> CYCLE UNDERWATER SCREENS OR TOGGLE DIVE SCREEN
+                KeyEvent.KEYCODE_STEM_1, KeyEvent.KEYCODE_BUTTON_1, KeyEvent.KEYCODE_FUNCTION -> {
+                    triggerPredefinedHaptic(VibrationEffect.EFFECT_CLICK)
+                    if (isUnderwater || currentScreen == "dive") {
+                        stateManager.cycleUnderwaterScreen()
+                    } else {
+                        currentScreen = if (currentScreen == "dive") "watchface" else "dive"
+                    }
+                    return true
+                }
+                // 🔙 BOTTOM BACK BUTTON: SHORT PRESS -> TOGGLE BACKLIGHT BOOST OR NAVIGATE BACK
+                KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_STEM_2 -> {
+                    if (isUnderwater || currentScreen == "dive") {
+                        stateManager.toggleBacklightBoost()
+                        triggerPredefinedHaptic(VibrationEffect.EFFECT_TICK)
+                        return true
+                    }
+                    if (currentScreen != "watchface") {
+                        currentScreen = "watchface"
+                        triggerPredefinedHaptic(VibrationEffect.EFFECT_TICK)
+                        return true
+                    }
+                }
+                // ⚪ TOP HOME/STEM_PRIMARY BUTTON: SHORT PRESS -> DROP DIVE WAYPOINT
+                KeyEvent.KEYCODE_STEM_PRIMARY, KeyEvent.KEYCODE_NAVIGATE_NEXT -> {
+                    if (isUnderwater || currentScreen == "dive") {
+                        diveLogManager.addMarker("WAYPOINT")
+                        triggerPredefinedHaptic(VibrationEffect.EFFECT_HEAVY_CLICK)
+                        return true
+                    }
+                }
+            }
+        }
+        return super.onKeyUp(keyCode, event)
+    }
+
+    override fun onKeyLongPress(keyCode: Int, event: KeyEvent?): Boolean {
+        val isUnderwater = stateManager.telemetry.value.phase != DivePhase.SURFACE && stateManager.telemetry.value.phase != DivePhase.COMPLETED
+        when (keyCode) {
+            // 🟠 MIDDLE QUICK BUTTON: LONG PRESS -> COMPASS BEARING LOCK (COURSE PIN)
+            KeyEvent.KEYCODE_STEM_1, KeyEvent.KEYCODE_BUTTON_1, KeyEvent.KEYCODE_FUNCTION -> {
+                stateManager.toggleBearingLock()
+                triggerPredefinedHaptic(VibrationEffect.EFFECT_DOUBLE_CLICK)
+                return true
+            }
+            // 🔙 BOTTOM BACK BUTTON: LONG PRESS -> END DIVE (If near surface < 1.0m)
+            KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_STEM_2 -> {
+                if (stateManager.telemetry.value.currentDepthMeters < 1.0) {
+                    stateManager.endDiveNow()
+                    currentScreen = "watchface"
+                    triggerPredefinedHaptic(VibrationEffect.EFFECT_HEAVY_CLICK)
+                    return true
+                }
+            }
+        }
+        return super.onKeyLongPress(keyCode, event)
+    }
+
+    private fun triggerPredefinedHaptic(effectId: Int) {
+        try {
+            val vibrator = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                val vm = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+                vm.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+            }
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                vibrator.vibrate(VibrationEffect.createPredefined(effectId))
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator.vibrate(60L)
+            }
+        } catch (ignored: Exception) {}
     }
 }
