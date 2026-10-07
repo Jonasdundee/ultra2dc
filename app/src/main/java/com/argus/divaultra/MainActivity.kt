@@ -27,12 +27,15 @@ import androidx.lifecycle.lifecycleScope
 import com.argus.divaultra.core.AscentRateStatus
 import com.argus.divaultra.core.DivePhase
 import com.argus.divaultra.core.DiveStateManager
+import com.argus.divaultra.core.NoFlyManager
+import com.argus.divaultra.core.NoFlyStatus
 import com.argus.divaultra.core.SafetyStopStatus
 import com.argus.divaultra.log.DiveLogManager
 import com.argus.divaultra.log.GpsPoint
 import com.argus.divaultra.ui.GarminDiveScreen
 import com.argus.divaultra.ui.SettingsScreen
 import com.argus.divaultra.ui.DiveLogScreen
+import com.argus.divaultra.ui.WatchfaceScreen
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -46,6 +49,7 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
     private var rotationSensor: Sensor? = null
     private val stateManager = DiveStateManager()
     private lateinit var diveLogManager: DiveLogManager
+    private lateinit var noFlyManager: NoFlyManager
     private var locationManager: LocationManager? = null
 
     private var surfacePressureHpa = 1013.25f
@@ -71,8 +75,9 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
         // Keep screen on continuously while diving
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-        // Initialize Dive Log Manager
+        // Initialize Dive Log Manager & No-Fly Manager
         diveLogManager = DiveLogManager(this)
+        noFlyManager = NoFlyManager(this, diveLogManager)
 
         // Initialize Sensors
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
@@ -136,7 +141,16 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
 
         setContent {
             val telemetry by stateManager.telemetry.collectAsState()
-            var currentScreen by remember { mutableStateOf("dive") }
+            var currentScreen by remember { mutableStateOf("watchface") }
+            var noFlyStatus by remember { mutableStateOf(noFlyManager.calculateStatus(telemetry.phase, telemetry.diveTimeSeconds)) }
+
+            // Live 1-second update for No-Fly calculation
+            LaunchedEffect(telemetry.phase, telemetry.diveTimeSeconds) {
+                while (isActive) {
+                    noFlyStatus = noFlyManager.calculateStatus(telemetry.phase, telemetry.diveTimeSeconds)
+                    delay(1000)
+                }
+            }
 
             // Whenever active diving is detected, automatically lock onto Dive Screen
             LaunchedEffect(telemetry.phase) {
@@ -146,42 +160,58 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
             }
 
             Box(modifier = Modifier.fillMaxSize()) {
-                if (currentScreen == "settings" && (telemetry.phase == DivePhase.SURFACE || telemetry.phase == DivePhase.COMPLETED)) {
-                    SettingsScreen(
-                        telemetry = telemetry,
-                        onGasSelected = { newMix ->
-                            stateManager.setGasMix(newMix)
-                        },
-                        onStartSimulation = {
-                            currentScreen = "dive"
-                            startSimulation()
-                        },
-                        onReturnToDive = {
-                            currentScreen = "dive"
-                        },
-                        onOpenLogs = {
-                            currentScreen = "logs"
-                        }
-                    )
-                } else if (currentScreen == "logs") {
-                    DiveLogScreen(
-                        logManager = diveLogManager,
-                        onClose = {
-                            currentScreen = "settings"
-                        }
-                    )
-                } else {
-                    GarminDiveScreen(
-                        telemetry = telemetry,
-                        onOpenSettings = {
-                            if (telemetry.phase == DivePhase.SURFACE || telemetry.phase == DivePhase.COMPLETED) {
-                                currentScreen = "settings"
+                when (currentScreen) {
+                    "watchface" -> {
+                        WatchfaceScreen(
+                            telemetry = telemetry,
+                            noFlyStatus = noFlyStatus,
+                            onStartDive = { currentScreen = "dive" },
+                            onOpenLogs = { currentScreen = "logs" },
+                            onOpenSettings = { currentScreen = "settings" }
+                        )
+                    }
+                    "settings" -> {
+                        SettingsScreen(
+                            telemetry = telemetry,
+                            onGasSelected = { newMix ->
+                                stateManager.setGasMix(newMix)
+                            },
+                            onStartSimulation = {
+                                currentScreen = "dive"
+                                startSimulation()
+                            },
+                            onReturnToDive = {
+                                currentScreen = "watchface"
+                            },
+                            onOpenLogs = {
+                                currentScreen = "logs"
                             }
-                        },
-                        onEndDiveNow = {
-                            stateManager.endDiveNow()
-                        }
-                    )
+                        )
+                    }
+                    "logs" -> {
+                        DiveLogScreen(
+                            logManager = diveLogManager,
+                            onClose = {
+                                currentScreen = "watchface"
+                            }
+                        )
+                    }
+                    else -> {
+                        GarminDiveScreen(
+                            telemetry = telemetry,
+                            onOpenSettings = {
+                                if (telemetry.phase == DivePhase.SURFACE || telemetry.phase == DivePhase.COMPLETED) {
+                                    currentScreen = "settings"
+                                }
+                            },
+                            onEndDiveNow = {
+                                stateManager.endDiveNow()
+                            },
+                            onReturnToWatchface = {
+                                currentScreen = "watchface"
+                            }
+                        )
+                    }
                 }
             }
         }
