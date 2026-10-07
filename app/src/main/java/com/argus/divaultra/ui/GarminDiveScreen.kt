@@ -42,8 +42,8 @@ val ColorTextMuted = Color(0xFF90A4AE)
 fun GarminDiveScreen(
     telemetry: DiveTelemetry,
     onOpenSettings: () -> Unit = {},
+    onOpenLogs: () -> Unit = {},
     onEndDiveNow: () -> Unit = {},
-    onReturnToWatchface: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Box(
@@ -70,18 +70,15 @@ fun GarminDiveScreen(
         when (telemetry.underwaterScreenIndex) {
             1 -> CompassNavigationHud(
                 telemetry = telemetry,
-                onOpenSettings = onOpenSettings,
-                onReturnToWatchface = onReturnToWatchface
+                onOpenSettings = onOpenSettings
             )
             2 -> BuhlmannTissueLoadingHud(
                 telemetry = telemetry,
-                onOpenSettings = onOpenSettings,
-                onReturnToWatchface = onReturnToWatchface
+                onOpenSettings = onOpenSettings
             )
             3 -> DetailedDiveStatsHud(
                 telemetry = telemetry,
-                onOpenSettings = onOpenSettings,
-                onReturnToWatchface = onReturnToWatchface
+                onOpenSettings = onOpenSettings
             )
             else -> {
                 // Central Tactical Cluster (Standard Primary Depth Screen 0)
@@ -96,7 +93,7 @@ fun GarminDiveScreen(
                     TopStatusBar(
                         telemetry = telemetry,
                         onOpenSettings = onOpenSettings,
-                        onReturnToWatchface = onReturnToWatchface,
+                        onOpenLogs = onOpenLogs,
                         modifier = Modifier.fillMaxWidth(0.80f)
                     )
 
@@ -719,7 +716,6 @@ fun PageDotsIndicator(selectedIndex: Int, modifier: Modifier = Modifier) {
 fun CompassNavigationHud(
     telemetry: DiveTelemetry,
     onOpenSettings: () -> Unit,
-    onReturnToWatchface: (() -> Unit)?,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -732,7 +728,6 @@ fun CompassNavigationHud(
         TopStatusBar(
             telemetry = telemetry,
             onOpenSettings = onOpenSettings,
-            onReturnToWatchface = onReturnToWatchface,
             modifier = Modifier.fillMaxWidth(0.80f)
         )
 
@@ -827,7 +822,6 @@ fun CompassNavigationHud(
 fun BuhlmannTissueLoadingHud(
     telemetry: DiveTelemetry,
     onOpenSettings: () -> Unit,
-    onReturnToWatchface: (() -> Unit)?,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -840,7 +834,6 @@ fun BuhlmannTissueLoadingHud(
         TopStatusBar(
             telemetry = telemetry,
             onOpenSettings = onOpenSettings,
-            onReturnToWatchface = onReturnToWatchface,
             modifier = Modifier.fillMaxWidth(0.80f)
         )
 
@@ -945,7 +938,6 @@ fun BuhlmannTissueLoadingHud(
 fun DetailedDiveStatsHud(
     telemetry: DiveTelemetry,
     onOpenSettings: () -> Unit,
-    onReturnToWatchface: (() -> Unit)?,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -958,7 +950,6 @@ fun DetailedDiveStatsHud(
         TopStatusBar(
             telemetry = telemetry,
             onOpenSettings = onOpenSettings,
-            onReturnToWatchface = onReturnToWatchface,
             modifier = Modifier.fillMaxWidth(0.80f)
         )
 
