@@ -158,40 +158,21 @@ fun TopStatusBar(
             )
         }
 
-        // Surface Mode: Clickable Watch & Setup Badges; Dive Mode: Gas Mix Badge
+        // Surface Mode: Clickable Setup Badge; Dive Mode: Gas Mix Badge
         if (telemetry.phase == DivePhase.SURFACE || telemetry.phase == DivePhase.COMPLETED) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (onReturnToWatchface != null) {
-                    Box(
-                        modifier = Modifier
-                            .background(ColorSurfaceGray, RoundedCornerShape(8.dp))
-                            .border(1.dp, ColorGarminCyan.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
-                            .clickable { onReturnToWatchface() }
-                            .padding(horizontal = 6.dp, vertical = 3.dp)
-                    ) {
-                        Text(
-                            text = "⌚ WATCH",
-                            color = ColorGarminCyan,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(4.dp))
-                }
-                Box(
-                    modifier = Modifier
-                        .background(ColorSurfaceGray, RoundedCornerShape(8.dp))
-                        .border(1.dp, ColorGarminCyan.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
-                        .clickable { onOpenSettings() }
-                        .padding(horizontal = 6.dp, vertical = 3.dp)
-                ) {
-                    Text(
-                        text = "⚙ EAN${(telemetry.fractionO2 * 100).toInt()}",
-                        color = ColorGarminCyan,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Black
-                    )
-                }
+            Box(
+                modifier = Modifier
+                    .background(ColorSurfaceGray, RoundedCornerShape(8.dp))
+                    .border(1.dp, ColorGarminCyan.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                    .clickable { onOpenSettings() }
+                    .padding(horizontal = 8.dp, vertical = 3.dp)
+            ) {
+                Text(
+                    text = "⚙ EAN${(telemetry.fractionO2 * 100).toInt()}",
+                    color = ColorGarminCyan,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Black
+                )
             }
         } else {
             Row(verticalAlignment = Alignment.CenterVertically) {

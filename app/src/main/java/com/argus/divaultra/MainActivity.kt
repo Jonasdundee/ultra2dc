@@ -58,7 +58,7 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
     private var currentTempCelsius = 24.0
     private var isSimulating = false
     private var hasDiveLogStarted = false
-    private var currentScreen by mutableStateOf("watchface")
+    private var currentScreen by mutableStateOf("dive")
 
     private val rotationMatrix = FloatArray(9)
     private val orientationAngles = FloatArray(3)
@@ -182,7 +182,7 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
                                 startSimulation()
                             },
                             onReturnToDive = {
-                                currentScreen = "watchface"
+                                currentScreen = "dive"
                             },
                             onOpenLogs = {
                                 currentScreen = "logs"
@@ -193,7 +193,7 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
                         DiveLogScreen(
                             logManager = diveLogManager,
                             onClose = {
-                                currentScreen = "watchface"
+                                currentScreen = "dive"
                             }
                         )
                     }
@@ -363,10 +363,14 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
         return when (keyCode) {
             KeyEvent.KEYCODE_STEM_1, KeyEvent.KEYCODE_BUTTON_1, KeyEvent.KEYCODE_FUNCTION -> true
             KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_STEM_2 -> {
-                if (isUnderwater) true else super.onKeyDown(keyCode, event)
+                if (isUnderwater || currentScreen == "dive") {
+                    true
+                } else {
+                    super.onKeyDown(keyCode, event)
+                }
             }
             KeyEvent.KEYCODE_STEM_PRIMARY, KeyEvent.KEYCODE_NAVIGATE_NEXT -> {
-                if (isUnderwater) true else super.onKeyDown(keyCode, event)
+                if (isUnderwater || currentScreen == "dive") true else super.onKeyDown(keyCode, event)
             }
             else -> super.onKeyDown(keyCode, event)
         }
@@ -377,30 +381,26 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
 
         if (event?.isTracking == true && !event.isCanceled) {
             when (keyCode) {
-                // 🟠 MIDDLE ORANGE QUICK BUTTON: SHORT PRESS -> CYCLE UNDERWATER SCREENS OR TOGGLE DIVE SCREEN
+                // 🟠 MIDDLE ORANGE QUICK BUTTON: SHORT PRESS -> CYCLE UNDERWATER SCREENS
                 KeyEvent.KEYCODE_STEM_1, KeyEvent.KEYCODE_BUTTON_1, KeyEvent.KEYCODE_FUNCTION -> {
                     triggerPredefinedHaptic(VibrationEffect.EFFECT_CLICK)
-                    if (isUnderwater || currentScreen == "dive") {
-                        stateManager.cycleUnderwaterScreen()
-                    } else {
-                        currentScreen = if (currentScreen == "dive") "watchface" else "dive"
-                    }
+                    stateManager.cycleUnderwaterScreen()
                     return true
                 }
-                // 🔙 BOTTOM BACK BUTTON: SHORT PRESS -> TOGGLE BACKLIGHT BOOST OR NAVIGATE BACK
+                // 🔙 BOTTOM BACK BUTTON: SHORT PRESS -> RETURN TO DIVE SCREEN OR TOGGLE BOOST
                 KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_STEM_2 -> {
-                    if (isUnderwater || currentScreen == "dive") {
+                    if (currentScreen != "dive") {
+                        currentScreen = "dive"
+                        triggerPredefinedHaptic(VibrationEffect.EFFECT_TICK)
+                        return true
+                    } else {
+                        // On dive screen, back button toggles backlight boost instead of exiting app
                         stateManager.toggleBacklightBoost()
                         triggerPredefinedHaptic(VibrationEffect.EFFECT_TICK)
                         return true
                     }
-                    if (currentScreen != "watchface") {
-                        currentScreen = "watchface"
-                        triggerPredefinedHaptic(VibrationEffect.EFFECT_TICK)
-                        return true
-                    }
                 }
-                // ⚪ TOP HOME/STEM_PRIMARY BUTTON: SHORT PRESS -> DROP DIVE WAYPOINT
+                // ⚪ TOP HOME BUTTON: SHORT PRESS -> DROP DIVE WAYPOINT
                 KeyEvent.KEYCODE_STEM_PRIMARY, KeyEvent.KEYCODE_NAVIGATE_NEXT -> {
                     if (isUnderwater || currentScreen == "dive") {
                         diveLogManager.addMarker("WAYPOINT")
@@ -414,7 +414,6 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
     }
 
     override fun onKeyLongPress(keyCode: Int, event: KeyEvent?): Boolean {
-        val isUnderwater = stateManager.telemetry.value.phase != DivePhase.SURFACE && stateManager.telemetry.value.phase != DivePhase.COMPLETED
         when (keyCode) {
             // 🟠 MIDDLE QUICK BUTTON: LONG PRESS -> COMPASS BEARING LOCK (COURSE PIN)
             KeyEvent.KEYCODE_STEM_1, KeyEvent.KEYCODE_BUTTON_1, KeyEvent.KEYCODE_FUNCTION -> {
@@ -426,7 +425,7 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
             KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_STEM_2 -> {
                 if (stateManager.telemetry.value.currentDepthMeters < 1.0) {
                     stateManager.endDiveNow()
-                    currentScreen = "watchface"
+                    currentScreen = "dive"
                     triggerPredefinedHaptic(VibrationEffect.EFFECT_HEAVY_CLICK)
                     return true
                 }

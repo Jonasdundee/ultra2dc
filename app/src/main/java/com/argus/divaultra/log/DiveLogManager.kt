@@ -213,14 +213,26 @@ class DiveLogManager(private val context: Context) {
     }
 
     fun getAllDiveLogs(): List<DiveLogSummary> {
-        val logDir = File(context.getExternalFilesDir(null), "dive_logs")
-        if (!logDir.exists() || !logDir.isDirectory) return emptyList()
+        val candidateDirs = listOfNotNull(
+            File(context.getExternalFilesDir(null), "dive_logs"),
+            File(context.filesDir, "dive_logs"),
+            try { File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS), "ArgusDive") } catch (e: Exception) { null }
+        )
 
-        val files = logDir.listFiles { file -> file.isFile && file.name.endsWith(".json") }
-            ?: return emptyList()
+        val foundFiles = mutableMapOf<String, File>()
+        for (dir in candidateDirs) {
+            if (dir.exists() && dir.isDirectory) {
+                dir.listFiles { file -> file.isFile && file.name.endsWith(".json") }?.forEach { f ->
+                    if (!foundFiles.containsKey(f.name)) {
+                        foundFiles[f.name] = f
+                    }
+                }
+            }
+        }
+        if (foundFiles.isEmpty()) return emptyList()
 
         val list = mutableListOf<DiveLogSummary>()
-        for (file in files) {
+        for (file in foundFiles.values) {
             try {
                 val json = JSONObject(file.readText())
                 val diveId = json.optString("dive_id", file.nameWithoutExtension)
@@ -295,9 +307,13 @@ class DiveLogManager(private val context: Context) {
     }
 
     fun getDiveLogDetails(diveId: String): DiveLogDetails? {
-        val logDir = File(context.getExternalFilesDir(null), "dive_logs")
-        val file = File(logDir, "${diveId}.json")
-        if (!file.exists()) return null
+        val candidateDirs = listOfNotNull(
+            File(context.getExternalFilesDir(null), "dive_logs"),
+            File(context.filesDir, "dive_logs"),
+            try { File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS), "ArgusDive") } catch (e: Exception) { null }
+        )
+        val file = candidateDirs.map { File(it, "${diveId}.json") }.firstOrNull { it.exists() }
+            ?: return null
 
         return try {
             val json = JSONObject(file.readText())
