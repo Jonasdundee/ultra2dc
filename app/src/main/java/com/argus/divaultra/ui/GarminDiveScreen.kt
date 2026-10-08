@@ -1026,7 +1026,7 @@ fun DetailedDiveStatsHud(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "ENERGY: ${CalorieCalc.calculateKcal(telemetry.diveTimeSeconds, telemetry.waterTemperatureCelsius)} KCAL",
+                        text = "ACTIVE: ${CalorieCalc.calculateKcal(telemetry.diveTimeSeconds, telemetry.waterTemperatureCelsius)} KCAL",
                         color = ColorGarminAmber,
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Bold

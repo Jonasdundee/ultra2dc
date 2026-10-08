@@ -51,6 +51,7 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
     private val stateManager = DiveStateManager()
     private lateinit var diveLogManager: DiveLogManager
     private lateinit var noFlyManager: NoFlyManager
+    private lateinit var healthWorkoutManager: com.argus.divaultra.health.HealthWorkoutManager
     private var locationManager: LocationManager? = null
 
     private var surfacePressureHpa = 1013.25f
@@ -77,9 +78,10 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
         // Keep screen on continuously while diving
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-        // Initialize Dive Log Manager & No-Fly Manager
+        // Initialize Dive Log Manager, No-Fly Manager & Health Workout Manager
         diveLogManager = DiveLogManager(this)
         noFlyManager = NoFlyManager(this, diveLogManager)
+        healthWorkoutManager = com.argus.divaultra.health.HealthWorkoutManager(this)
 
         // Initialize Sensors
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
@@ -111,6 +113,7 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
                 if (telemetry.phase != DivePhase.SURFACE && telemetry.phase != DivePhase.COMPLETED && !hasDiveLogStarted) {
                     hasDiveLogStarted = true
                     diveLogManager.startDiveLog(telemetry.fractionO2)
+                    healthWorkoutManager.startWorkoutSession()
                     stopGpsUpdates() // Turn off GPS underwater to save battery
                 }
 
@@ -269,6 +272,15 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
         } catch (ignored: SecurityException) {}
 
         diveLogManager.endDiveLog(telemetry)
+        healthWorkoutManager.endWorkoutSession(
+            endTimeMs = System.currentTimeMillis(),
+            durationSeconds = telemetry.diveTimeSeconds,
+            waterTempCelsius = telemetry.waterTemperatureCelsius,
+            maxDepthMeters = telemetry.maxDepthMeters,
+            avgDepthMeters = telemetry.averageDepthMeters,
+            entryGps = null,
+            exitGps = null
+        )
     }
 
     override fun onLocationChanged(location: Location) {

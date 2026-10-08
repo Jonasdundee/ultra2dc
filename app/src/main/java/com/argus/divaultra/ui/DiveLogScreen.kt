@@ -272,7 +272,7 @@ private fun DiveLogSummaryCard(
                 }
                 if (log.caloriesKcal > 0) {
                     Text(
-                        text = "🔥 ${log.caloriesKcal} KCAL",
+                        text = "🔥 ${log.caloriesKcal} ACTIVE KCAL",
                         color = ColorGarminAmber,
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Bold
@@ -411,11 +411,12 @@ private fun DiveLogDetailView(
                             fontSize = 9.sp,
                             fontWeight = FontWeight.Bold
                         )
+                        val grossText = if (summary.grossCaloriesKcal > 0) " (TOTAL: ${summary.grossCaloriesKcal})" else ""
                         if (summary.caloriesKcal > 0) {
                             Text(
-                                text = "🔥 ${summary.caloriesKcal} KCAL",
+                                text = "🔥 ${summary.caloriesKcal} ACTIVE KCAL$grossText",
                                 color = ColorGarminAmber,
-                                fontSize = 10.sp,
+                                fontSize = 9.sp,
                                 fontWeight = FontWeight.Bold
                             )
                         }
