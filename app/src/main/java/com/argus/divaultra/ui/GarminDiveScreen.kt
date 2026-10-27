@@ -37,6 +37,7 @@ val ColorGarminRed = Color(0xFFFF1744)
 val ColorSurfaceGray = Color(0xFF1E242B)
 val ColorCardBackground = Color(0xFF13181F)
 val ColorTextMuted = Color(0xFF90A4AE)
+val ColorTextPrimary = Color(0xFFE0E6ED)
 
 @Composable
 fun GarminDiveScreen(
