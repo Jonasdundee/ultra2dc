@@ -4,19 +4,21 @@ import kotlin.math.exp
 import kotlin.math.ln
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.pow
 
 /**
  * Bühlmann ZHL-16C Decompression Algorithm with Gradient Factors (GF Low / GF High).
- * Generated via MiniMax-M3 Coding Plan.
+ * Enhanced for Commercial Safety, Repetitive Dives, and State Persistence.
  *
  * Implements:
  * - 16 tissue compartments (N2 half-times 4.0 to 635.0 min) with standard ZHL-16C coefficients
  * - Nitrox support (FO2 0.21 - 0.40)
  * - Real-time NDL (No Decompression Limit) calculation
  * - Decompression stops & ceiling calculation
- * - Safety stop tracker (3 min at 3m - 5m)
- * - Ascent rate monitor (target <= 9 m/min)
- * - Oxygen toxicity (PO2 and CNS% accumulation according to NOAA limits)
+ * - Surface interval desaturation across repetitive dives and days
+ * - Persistent tissue state getters/setters for crash/reboot recovery
+ * - NOAA CNS% accumulation and 90-minute surface decay
+ * - Oxygen Tolerance Units (OTU) tracking
  */
 class BuhlmannZHL16C(
     var gfLow: Double = 0.40,   // Conservative GF Low (40%)
@@ -55,8 +57,12 @@ class BuhlmannZHL16C(
     // Tissue nitrogen partial pressures (bar) for all 16 compartments
     private val tissueP_N2 = DoubleArray(16)
 
-    // Accumulated CNS Oxygen Toxicity fraction (0.0 to 1.0+)
+    // Accumulated CNS Oxygen Toxicity percent (0.0 to 100.0%+)
     var cnsToxicityPercent: Double = 0.0
+        private set
+
+    // Accumulated Oxygen Tolerance Units (OTU)
+    var accumulatedOTU: Double = 0.0
         private set
 
     init {
@@ -73,6 +79,63 @@ class BuhlmannZHL16C(
             tissueP_N2[i] = pN2_surf
         }
         cnsToxicityPercent = 0.0
+        accumulatedOTU = 0.0
+    }
+
+    /**
+     * Exports raw 16-compartment N2 partial pressures for continuous persistence.
+     */
+    fun getTissueP_N2(): DoubleArray {
+        return tissueP_N2.clone()
+    }
+
+    /**
+     * Imports 16-compartment N2 partial pressures from saved state.
+     */
+    fun setTissueP_N2(loaded: DoubleArray) {
+        if (loaded.size == 16) {
+            for (i in 0 until 16) {
+                tissueP_N2[i] = loaded[i]
+            }
+        }
+    }
+
+    fun setCnsToxicity(cns: Double) {
+        cnsToxicityPercent = max(0.0, cns)
+    }
+
+    fun setAccumulatedOTUValue(otu: Double) {
+        accumulatedOTU = max(0.0, otu)
+    }
+
+    /**
+     * Simulates surface interval desaturation over elapsed minutes.
+     * Uses Haldane offgassing against ambient air (79.02% N2).
+     * Decays NOAA CNS% with standard 90-minute half-life.
+     * Decays OTU over 24-hour cycle.
+     */
+    fun desaturateSurface(surfaceIntervalMinutes: Double, ambientPressureBar: Double = surfacePressureBar) {
+        if (surfaceIntervalMinutes <= 0.0) return
+
+        val pInspN2 = (ambientPressureBar - WATER_VAPOR_PRESSURE) * 0.7902
+
+        // Desaturate each of the 16 compartments
+        for (i in 0 until 16) {
+            val k = ln(2.0) / COMPARTMENTS[i].halfTimeMinutes
+            tissueP_N2[i] = pInspN2 + (tissueP_N2[i] - pInspN2) * exp(-k * surfaceIntervalMinutes)
+            // Ensure compartment does not drop below ambient surface equilibrium
+            if (tissueP_N2[i] < pInspN2) {
+                tissueP_N2[i] = pInspN2
+            }
+        }
+
+        // NOAA Rule: CNS oxygen toxicity decays at surface with a 90-minute half-time
+        val kCns = ln(2.0) / 90.0
+        cnsToxicityPercent = max(0.0, cnsToxicityPercent * exp(-kCns * surfaceIntervalMinutes))
+
+        // OTU decays conservatively over 24 hours (1440 min half-life)
+        val kOtu = ln(2.0) / 1440.0
+        accumulatedOTU = max(0.0, accumulatedOTU * exp(-kOtu * surfaceIntervalMinutes))
     }
 
     /**
@@ -93,6 +156,7 @@ class BuhlmannZHL16C(
 
     /**
      * Maximum Operating Depth (MOD) in meters for a given oxygen fraction and PO2 limit.
+     * Default PO2 is conservative recreational limit 1.4 bar.
      */
     fun calculateMOD(fractionO2: Double, maxPO2: Double = 1.4): Double {
         val maxAmbPressure = maxPO2 / fractionO2
@@ -107,8 +171,8 @@ class BuhlmannZHL16C(
     }
 
     /**
-     * Advances simulation/dive time by deltaSeconds at depthMeters with gas mix fractionO2.
-     * Uses the Schreiner/Haldane equation for tissue gas loading and NOAA CNS accumulation.
+     * Advances dive time by deltaSeconds at depthMeters with gas mix fractionO2.
+     * Uses the Schreiner/Haldane equation for tissue gas loading, NOAA CNS accumulation, and OTU.
      */
     fun update(depthMeters: Double, deltaSeconds: Double, fractionO2: Double) {
         val pAmb = depthToBar(depthMeters)
@@ -123,9 +187,10 @@ class BuhlmannZHL16C(
             tissueP_N2[i] = tissueP_N2[i] + (pInspN2 - tissueP_N2[i]) * (1.0 - exp(-k * dtMin))
         }
 
-        // Update CNS Oxygen Toxicity
+        // Update CNS Oxygen Toxicity & OTU
         val po2 = pAmb * fractionO2
         updateCNS(po2, dtMin)
+        updateOTU(po2, dtMin)
     }
 
     /**
@@ -149,6 +214,17 @@ class BuhlmannZHL16C(
         }
         val addedPercent = (dtMin / maxMinutes) * 100.0
         cnsToxicityPercent = min(200.0, cnsToxicityPercent + addedPercent)
+    }
+
+    /**
+     * Updates Oxygen Tolerance Units (OTU):
+     * OTU = t * ((PO2 - 0.5) / 0.5)^0.83 for PO2 > 0.5 bar.
+     */
+    private fun updateOTU(po2: Double, dtMin: Double) {
+        if (po2 > 0.5) {
+            val otuRate = ((po2 - 0.5) / 0.5).pow(0.83)
+            accumulatedOTU += dtMin * otuRate
+        }
     }
 
     /**

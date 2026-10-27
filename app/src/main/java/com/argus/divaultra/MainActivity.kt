@@ -30,7 +30,13 @@ import com.argus.divaultra.core.DivePhase
 import com.argus.divaultra.core.DiveStateManager
 import com.argus.divaultra.core.NoFlyManager
 import com.argus.divaultra.core.NoFlyStatus
+import android.content.BroadcastReceiver
+import android.content.Intent
+import android.content.IntentFilter
+import android.os.BatteryManager
 import com.argus.divaultra.core.SafetyStopStatus
+import com.argus.divaultra.core.TissuePersistenceManager
+import com.argus.divaultra.ui.EulaScreen
 import com.argus.divaultra.log.DiveLogManager
 import com.argus.divaultra.log.GpsPoint
 import com.argus.divaultra.ui.GarminDiveScreen
@@ -49,6 +55,8 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
     private var tempSensor: Sensor? = null
     private var rotationSensor: Sensor? = null
     private val stateManager = DiveStateManager()
+    private lateinit var persistenceManager: TissuePersistenceManager
+    private var batteryReceiver: BroadcastReceiver? = null
     private lateinit var diveLogManager: DiveLogManager
     private lateinit var noFlyManager: NoFlyManager
     private lateinit var healthWorkoutManager: com.argus.divaultra.health.HealthWorkoutManager
@@ -82,6 +90,22 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
         diveLogManager = DiveLogManager(this)
         noFlyManager = NoFlyManager(this, diveLogManager)
         healthWorkoutManager = com.argus.divaultra.health.HealthWorkoutManager(this)
+        persistenceManager = TissuePersistenceManager(this)
+        stateManager.attachPersistence(persistenceManager)
+
+        batteryReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                val level = intent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+                val scale = intent?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
+                if (level >= 0 && scale > 0) {
+                    val pct = (level * 100) / scale
+                    stateManager.updateBatteryLevel(pct)
+                }
+            }
+        }
+        try {
+            registerReceiver(batteryReceiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        } catch (ignored: Exception) {}
 
         // Initialize Sensors
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
@@ -137,6 +161,18 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
                 if (telemetry.ascentRateStatus == AscentRateStatus.DANGER && prevAscentStatus != AscentRateStatus.DANGER) {
                     triggerHapticPattern(longArrayOf(0, 100, 100, 100, 100, 100))
                 }
+                // Critical ascent (> 12 m/min)
+                if (telemetry.ascentRateStatus == AscentRateStatus.CRITICAL) {
+                    triggerHapticPattern(longArrayOf(0, 80, 80, 80, 80, 80))
+                }
+                // MOD / PO2 exceeded
+                if (telemetry.isModExceeded) {
+                    triggerHapticPattern(longArrayOf(0, 200, 100, 200, 100, 200))
+                }
+                // Critical Battery (<= 10%)
+                if (telemetry.isBatteryCritical) {
+                    triggerHapticPattern(longArrayOf(0, 300, 200, 300))
+                }
 
                 prevSafetyStatus = telemetry.safetyStopStatus
                 prevAscentStatus = telemetry.ascentRateStatus
@@ -163,8 +199,18 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
                 }
             }
 
-            Box(modifier = Modifier.fillMaxSize()) {
-                when (currentScreen) {
+            var hasAcceptedEula by remember { mutableStateOf(persistenceManager.isEulaAccepted()) }
+
+            if (!hasAcceptedEula) {
+                EulaScreen(
+                    onAccept = {
+                        persistenceManager.setEulaAccepted(true)
+                        hasAcceptedEula = true
+                    }
+                )
+            } else {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    when (currentScreen) {
                     "watchface" -> {
                         WatchfaceScreen(
                             telemetry = telemetry,
@@ -177,8 +223,8 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
                     "settings" -> {
                         SettingsScreen(
                             telemetry = telemetry,
-                            onGasSelected = { newMix ->
-                                stateManager.setGasMix(newMix)
+                            onGasSelected = { newMix, isConfirmed ->
+                                stateManager.setGasMix(newMix, isConfirmed)
                             },
                             onStartSimulation = {
                                 currentScreen = "dive"
@@ -217,6 +263,7 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
                         )
                     }
                 }
+            }
             }
         }
     }
@@ -462,5 +509,11 @@ class MainActivity : ComponentActivity(), SensorEventListener, LocationListener 
                 vibrator.vibrate(60L)
             }
         } catch (ignored: Exception) {}
+    }
+    override fun onDestroy() {
+        super.onDestroy()
+        batteryReceiver?.let {
+            try { unregisterReceiver(it) } catch (ignored: Exception) {}
+        }
     }
 }

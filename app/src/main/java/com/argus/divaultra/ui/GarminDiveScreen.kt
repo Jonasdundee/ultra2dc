@@ -239,8 +239,73 @@ fun StandardDepthDisplay(
             fontFamily = FontFamily.Monospace
         )
 
+        // 0. Critical Safety Alarms (Lockout, MOD Exceeded, Critical Battery)
+        if (telemetry.isModExceeded) {
+            Box(
+                modifier = Modifier
+                    .padding(top = 1.dp)
+                    .background(ColorGarminRed.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                    .border(1.dp, ColorGarminRed, RoundedCornerShape(6.dp))
+                    .padding(horizontal = 8.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = "⚠️ PO2 / MOD EXCEEDED!",
+                    color = ColorGarminRed,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Black
+                )
+            }
+        }
+        else if (telemetry.isLockoutActive) {
+            Box(
+                modifier = Modifier
+                    .padding(top = 1.dp)
+                    .background(ColorGarminRed.copy(alpha = 0.35f), RoundedCornerShape(6.dp))
+                    .border(1.dp, ColorGarminRed, RoundedCornerShape(6.dp))
+                    .padding(horizontal = 8.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = "⚠️ GAUGE ONLY - LOCKOUT",
+                    color = ColorGarminRed,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Black
+                )
+            }
+        }
+        else if (telemetry.isBatteryCritical) {
+            Box(
+                modifier = Modifier
+                    .padding(top = 1.dp)
+                    .background(ColorGarminRed.copy(alpha = 0.45f), RoundedCornerShape(6.dp))
+                    .border(1.dp, ColorGarminRed, RoundedCornerShape(6.dp))
+                    .padding(horizontal = 8.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = "⚠️ BATT CRITICAL 10%",
+                    color = ColorGarminRed,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Black
+                )
+            }
+        }
+        else if (telemetry.isBatteryLow) {
+            Box(
+                modifier = Modifier
+                    .padding(top = 1.dp)
+                    .background(ColorGarminAmber.copy(alpha = 0.35f), RoundedCornerShape(6.dp))
+                    .border(1.dp, ColorGarminAmber, RoundedCornerShape(6.dp))
+                    .padding(horizontal = 8.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = "⚠️ BATT LOW ${telemetry.batteryLevelPercent}%",
+                    color = ColorGarminAmber,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Black
+                )
+            }
+        }
         // Depth Unit / Active Stop Sub-banner
-        if (telemetry.phase == DivePhase.DECO_STOP && telemetry.ceilingMeters >= 3.0) {
+        else if (telemetry.phase == DivePhase.DECO_STOP && telemetry.ceilingMeters >= 3.0) {
             Box(
                 modifier = Modifier
                     .padding(top = 1.dp)
@@ -386,6 +451,41 @@ fun MiddleBottomDataBar(
  */
 @Composable
 fun NdlSafetyPill(telemetry: DiveTelemetry) {
+    if (telemetry.isLockoutActive) {
+        Box(
+            modifier = Modifier
+                .background(
+                    ColorGarminRed.copy(alpha = 0.25f),
+                    RoundedCornerShape(8.dp)
+                )
+                .border(
+                    1.dp,
+                    ColorGarminRed.copy(alpha = 0.75f),
+                    RoundedCornerShape(8.dp)
+                )
+                .padding(horizontal = 10.dp, vertical = 3.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "LOCKOUT",
+                    color = ColorGarminRed,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Black,
+                    fontFamily = FontFamily.Monospace
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = "GAUGE ONLY",
+                    color = ColorTextMuted,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+        return
+    }
+
     val ndlColor = when {
         telemetry.ndlMinutes <= 5 -> ColorGarminRed
         telemetry.ndlMinutes <= 10 -> ColorGarminAmber
